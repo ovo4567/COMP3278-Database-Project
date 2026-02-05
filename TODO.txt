@@ -1,0 +1,19 @@
+Core Features
+• User accounts with unique usernames
+• Support for image posts via image URLs
+• Visualization of images directly in the feed
+• Each post displays: Username, Text description, Image, Timestamp
+• Like functionality for posts
+
+Optional / Bonus Features
+• Support multi-device and multi-user concurrent access
+• Users can create and publish posts with text content
+• Automatic maintenance and update of like counts for each post
+• Commenting on posts
+• Viewing posts sorted by time or popularity
+• Displaying user-specific post history
+• A button to like or unlike a post
+• Basic analytics (e.g., most-liked posts, most active users)
+
+
+Cordelia Tang sent a message "hhh"

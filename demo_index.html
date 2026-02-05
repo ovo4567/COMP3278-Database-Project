@@ -1,0 +1,1244 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title> HKUgram </title>
+  <style>
+    :root { --bg:#0b0f14; --panel:#111824; --card:#0f1722; --muted:#9bb0c7; --text:#e6eef8; --line:#223044; --accent:#4da3ff; --danger:#ff5d5d; --ok:#3ddc97; --heart:#ff5d8f; --comment:#5dffb3; }
+    * { box-sizing: border-box; }
+    body { margin:0; background: linear-gradient(180deg, #07101a, var(--bg)); color: var(--text);
+      font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "PingFang SC", "Microsoft Yahei"; }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 18px; }
+    h1 { margin: 0 0 10px; font-size: 18px; }
+    .panel { background: rgba(17,24,36,.85); border:1px solid var(--line); border-radius: 14px; padding: 14px;
+      box-shadow: 0 10px 28px rgba(0,0,0,.35); backdrop-filter: blur(10px); }
+    label { display:block; font-size: 12px; color: var(--muted); margin: 0 0 6px; }
+    input, select, button, textarea {
+      width: 100%; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background:#0b1320;
+      color: var(--text); outline:none;
+    }
+    input:focus, select:focus, textarea:focus { border-color: rgba(77,163,255,.65); box-shadow: 0 0 0 3px rgba(77,163,255,.15); }
+    button { cursor:pointer; font-weight: 700;
+      background: linear-gradient(180deg, rgba(77,163,255,.22), rgba(77,163,255,.08));
+      border-color: rgba(77,163,255,.55);
+    }
+    button.secondary { font-weight: 600; background:#0b1320; border-color: var(--line); }
+    button.danger { background: rgba(255,93,93,.12); border-color: rgba(255,93,93,.5); color:#ffd0d0; }
+    button.comment-btn { background: rgba(93,255,179,.12); border-color: rgba(93,255,179,.5); color:#d7ffef; }
+    .grid { display:grid; grid-template-columns: 1.2fr 1fr 1fr 1fr; gap: 10px; }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 520px) { .grid { grid-template-columns: 1fr; } }
+    .row { display:flex; gap:10px; flex-wrap: wrap; align-items: end; margin-top: 10px; }
+    .grow { flex: 1 1 260px; }
+    .mini { width: 160px; }
+    .meta { display:flex; gap:10px; flex-wrap: wrap; align-items:center; margin-top: 10px; color: var(--muted); }
+    .badge { display:inline-flex; gap:8px; align-items:center; padding: 6px 10px; border:1px solid var(--line);
+      border-radius: 999px; background: rgba(15,23,34,.7); font-size: 12px; }
+    .dot { width:8px; height:8px; border-radius: 99px; background: var(--ok); display:inline-block; }
+    .dot.idle { background: #ffcc66; }
+    .dot.err { background: var(--danger); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+    .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+    .errbox { margin-top: 10px; padding: 10px 12px; border-radius: 12px; border:1px solid rgba(255,93,93,.45);
+      background: rgba(255,93,93,.10); color:#ffd0d0; display:none; white-space: pre-wrap; }
+    .okbox { margin-top: 10px; padding: 10px 12px; border-radius: 12px; border:1px solid rgba(61,220,151,.35);
+      background: rgba(61,220,151,.08); color:#d7ffef; display:none; white-space: pre-wrap; }
+    .content { margin-top: 14px; }
+    .list { display:flex; flex-direction: column; gap: 10px; }
+    .empty { padding: 24px; text-align:center; color: var(--muted); border:1px dashed rgba(155,176,199,.25);
+      border-radius: 14px; background: rgba(15,23,34,.35); }
+    .card { background: rgba(15,23,34,.72); border:1px solid var(--line); border-radius: 14px; padding: 12px; }
+    .card-header { display:flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+    .user-info { display: flex; align-items: center; gap: 10px; }
+    .avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--line); object-fit: cover; }
+    .username { font-weight: 800; font-size: 15px; }
+    .display-name { color: var(--muted); font-size: 13px; }
+    .time { color: var(--muted); font-size: 12px; text-align: right; }
+    .msg { margin-top: 8px; white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
+    .imgwrap { margin-top: 10px; }
+    .imgwrap img { max-width: 100%; max-height: 400px; border-radius: 12px; border:1px solid rgba(255,255,255,.08); display:block; }
+    .toolbar { display:flex; gap:10px; flex-wrap: wrap; justify-content: space-between; align-items:center; margin-bottom: 10px; }
+    .actions { display: flex; gap: 15px; margin-top: 12px; }
+    .like-btn { display: flex; align-items: center; gap: 6px; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 4px 8px; border-radius: 6px; transition: all 0.2s; }
+    .like-btn:hover { background: rgba(255,93,143,.1); }
+    .like-btn.liked { color: var(--heart); }
+    .like-icon { font-size: 16px; }
+    .like-count { font-weight: 600; }
+    .user-selector { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .user-selector select { flex: 1; }
+    
+    /* New styles for comments section */
+    .comments-section { margin-top: 15px; border-top: 1px solid var(--line); padding-top: 15px; }
+    .comments-title { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+    .comment-form { margin-top: 10px; display: flex; gap: 8px; }
+    .comment-form textarea { flex: 1; min-height: 60px; resize: vertical; }
+    .comment-form button { width: auto; min-width: 80px; }
+    .comments-list { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+    .comment-item { padding: 10px; background: rgba(11,19,32,.5); border-radius: 8px; border: 1px solid rgba(255,255,255,.05); }
+    .comment-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+    .comment-user { font-size: 13px; font-weight: 600; }
+    .comment-time { font-size: 11px; color: var(--muted); }
+    .comment-text { font-size: 13px; line-height: 1.4; }
+    
+    /* Create post section */
+    .create-post { margin-top: 20px; padding: 15px; background: rgba(15,23,34,.5); border-radius: 12px; border: 1px solid var(--line); }
+    .create-post h3 { margin: 0 0 10px; font-size: 16px; }
+    .create-post textarea { margin-bottom: 10px; min-height: 80px; }
+    .create-post-actions { display: flex; gap: 10px; }
+    .sort-options { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+    .sort-btn { padding: 6px 12px; border-radius: 6px; font-size: 13px; white-space: nowrap; }
+    .sort-btn.active { background: var(--accent); border-color: var(--accent); }
+    
+    /* Analytics section */
+    .analytics-panel { margin-top: 20px; padding: 15px; background: rgba(15,23,34,.5); border-radius: 12px; border: 1px solid var(--line); }
+    .analytics-panel h3 { margin: 0 0 15px; font-size: 16px; }
+    .analytics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+    @media (max-width: 768px) { .analytics-grid { grid-template-columns: 1fr; } }
+    .analytics-card { padding: 15px; background: rgba(11,19,32,.7); border-radius: 10px; border: 1px solid var(--line); }
+    .analytics-card h4 { margin: 0 0 10px; font-size: 14px; color: var(--accent); }
+    .analytics-list { display: flex; flex-direction: column; gap: 8px; }
+    .analytics-item { display: flex; justify-content: space-between; padding: 8px; background: rgba(255,255,255,.05); border-radius: 6px; }
+    .analytics-user { display: flex; align-items: center; gap: 8px; }
+    .analytics-count { font-weight: 600; color: var(--ok); }
+    
+    /* User history filter */
+    .user-history-filter { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+    .user-history-filter select { flex: 1; min-width: 200px; }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <h1> HKUgram </h1>
+
+    <div class="panel">
+      <div class="user-selector">
+        <div style="flex: 1;">
+          <label>Current User (for likes and comments)</label>
+          <select id="currentUser">
+            <option value="" selected>Select a user to interact</option>
+          </select>
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <button id="btnLoadUsers">Load Users</button>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div>
+          <label>Backend Base URL</label>
+          <input id="baseUrl" value="http://127.0.0.1:8000" placeholder="http://127.0.0.1:8000" />
+          <div class="hint">Your FastAPI address.</div>
+        </div>
+
+        <div>
+          <label>Load groups</label>
+          <button id="btnLoadGroups">Fetch /groups</button>
+          <div class="hint">Click this first so the page can get the "real group names" from the DB.</div>
+        </div>
+
+        <div>
+          <label>Limit (1~500)</label>
+          <input id="limit" type="number" min="1" max="500" value="200" />
+          <div class="hint">Max number of messages to fetch each time.</div>
+        </div>
+
+        <div>
+          <label>Auto Refresh</label>
+          <select id="autoRefresh">
+            <option value="off" selected>Off</option>
+            <option value="3000">Every 3s</option>
+            <option value="5000">Every 5s</option>
+            <option value="10000">Every 10s</option>
+          </select>
+          <div class="hint">Polling refresh (snapshot style).</div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="grow">
+          <label>Group Picker (from /groups)</label>
+          <select id="groupSelect">
+            <option value="" selected>(Click Fetch /groups first)</option>
+          </select>
+          <div class="hint">Pick here to match the database exactly.</div>
+        </div>
+
+        <div class="grow">
+          <label>Or type to match (fuzzy)</label>
+          <input id="groupFuzzy" placeholder="Type part of the name; I will pick the closest group" />
+          <div class="hint">Example: type COMP 3278 and it will select the closest match.</div>
+        </div>
+
+        <div class="mini">
+          <label>View</label>
+          <select id="viewMode">
+            <option value="all" selected>All</option>
+            <option value="textOnly">Text only</option>
+            <option value="imageOnly">Image only</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- User History Filter -->
+      <div class="user-history-filter">
+        <label>View posts by user:</label>
+        <select id="userHistoryFilter">
+          <option value="" selected>All Users</option>
+        </select>
+        <button class="secondary" id="btnClearUserFilter">Clear Filter</button>
+      </div>
+
+      <!-- Sort Options -->
+      <div class="sort-options">
+        <button class="sort-btn active" data-sort="desc">Newest First</button>
+        <button class="sort-btn" data-sort="asc">Oldest First</button>
+        <button class="sort-btn" data-sort="popularity">Most Popular</button>
+        <button class="sort-btn" data-sort="most_commented">Most Commented</button>
+      </div>
+
+      <div class="row">
+        <div class="grow">
+          <label>After (optional)</label>
+          <input id="after" placeholder="YYYY-MM-DD HH:MM:SS" />
+        </div>
+        <div class="grow">
+          <label>Before (optional)</label>
+          <input id="before" placeholder="YYYY-MM-DD HH:MM:SS" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="grow">
+          <label>Search (client-side)</label>
+          <input id="search" placeholder="Filter by username / content / image_url" />
+        </div>
+        <div class="mini">
+          <label>&nbsp;</label>
+          <button id="btnLoadMsgs">Load Messages</button>
+        </div>
+        <div class="mini">
+          <label>&nbsp;</label>
+          <button class="secondary" id="btnExport">Export JSON</button>
+        </div>
+        <div class="mini">
+          <label>&nbsp;</label>
+          <button class="danger" id="btnClear">Clear</button>
+        </div>
+      </div>
+
+      <div class="meta">
+        <span class="badge"><span id="statusDot" class="dot idle"></span><span id="statusText">Idle</span></span>
+        <span class="badge">Users: <span id="userCount">0</span></span>
+        <span class="badge">Groups: <span id="groupCount">0</span></span>
+        <span class="badge">Loaded: <span id="count">0</span></span>
+        <span class="badge">Filtered: <span id="filteredCount">0</span></span>
+        <span class="badge">Current User: <span class="mono" id="currentUserDisplay">—</span></span>
+        <span class="badge">Filter User: <span class="mono" id="filterUserDisplay">All</span></span>
+      </div>
+
+      <div id="okbox" class="okbox"></div>
+      <div id="errbox" class="errbox"></div>
+
+      <div class="hint">
+        Key point: this page always uses the real <span class="mono">name</span> returned by <span class="mono">/groups</span> to build the URL, and applies <span class="mono">encodeURIComponent</span> to the path parameter to guarantee an exact match.
+      </div>
+    </div>
+
+    <!-- Analytics Panel -->
+    <div class="analytics-panel">
+      <h3>Analytics Dashboard</h3>
+      <div class="analytics-grid">
+        <div class="analytics-card">
+          <h4>Most Liked Posts</h4>
+          <div id="mostLikedPosts" class="analytics-list">
+            <div class="empty">Load messages first to see analytics</div>
+          </div>
+        </div>
+        <div class="analytics-card">
+          <h4>Most Active Users</h4>
+          <div id="mostActiveUsers" class="analytics-list">
+            <div class="empty">Load messages first to see analytics</div>
+          </div>
+        </div>
+        <div class="analytics-card">
+          <h4>Recent Activity</h4>
+          <div id="recentActivity" class="analytics-list">
+            <div class="empty">Load messages first to see analytics</div>
+          </div>
+        </div>
+        <div class="analytics-card">
+          <h4>Statistics</h4>
+          <div id="statistics" class="analytics-list">
+            <div class="empty">Load messages first to see statistics</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Create Post Section -->
+    <div class="create-post">
+      <h3>Create New Post</h3>
+      <textarea id="newPostContent" placeholder="Write your post here..."></textarea>
+      <input type="text" id="imageUrl" placeholder="Image URL (optional)" />
+      <div class="create-post-actions">
+        <button class="comment-btn" id="btnCreatePost">Publish Post</button>
+        <button class="secondary" id="btnClearPost">Clear</button>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="toolbar">
+        <div class="badge">Tips: Select a user first to interact with posts and comments.</div>
+        <div style="display:flex; gap:10px; flex-wrap: wrap;">
+          <button class="secondary" id="btnTop">Scroll Top</button>
+          <button class="secondary" id="btnBottom">Scroll Bottom</button>
+          <button class="secondary" id="btnRefreshAnalytics">Refresh Analytics</button>
+        </div>
+      </div>
+
+      <div id="list" class="list">
+        <div class="empty">Click "Load Users" and "Fetch /groups" first, select a user and group, then click "Load Messages".</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  // -----------------------------
+  // State
+  // -----------------------------
+  let users = [];
+  let groups = [];
+  let allMessages = [];
+  let timer = null;
+  let currentUser = '';
+  let currentSort = 'desc'; // 'desc', 'asc', 'popularity', 'most_commented'
+  let filterByUser = '';
+
+  // -----------------------------
+  // DOM helper - safe get element
+  // -----------------------------
+  function $(id) {
+    const elem = document.getElementById(id);
+    if (!elem) {
+      console.warn(`Element with id "${id}" not found`);
+      return null;
+    }
+    return elem;
+  }
+
+  function setStatus(kind, text) {
+    const statusText = $("statusText");
+    if (!statusText) return;
+    
+    const dot = $("statusDot");
+    if (dot) {
+      dot.classList.remove("idle", "err");
+      if (kind === "idle") dot.classList.add("idle");
+      if (kind === "error") dot.classList.add("err");
+    }
+    statusText.textContent = text;
+  }
+
+  function showError(msg) {
+    const errbox = $("errbox");
+    const okbox = $("okbox");
+    if (errbox) {
+      errbox.style.display = "block";
+      errbox.textContent = msg;
+    }
+    if (okbox) okbox.style.display = "none";
+    setStatus("error", "Error");
+  }
+
+  function showOk(msg) {
+    const okbox = $("okbox");
+    const errbox = $("errbox");
+    if (okbox) {
+      okbox.style.display = "block";
+      okbox.textContent = msg;
+    }
+    if (errbox) errbox.style.display = "none";
+    setStatus("idle", "Success");
+  }
+
+  function clearBoxes() {
+    const errbox = $("errbox");
+    const okbox = $("okbox");
+    if (errbox) {
+      errbox.style.display = "none";
+      errbox.textContent = "";
+    }
+    if (okbox) {
+      okbox.style.display = "none";
+      okbox.textContent = "";
+    }
+  }
+
+  function baseUrl() {
+    const input = $("baseUrl");
+    return input ? input.value.trim().replace(/\/+$/, "") : "http://127.0.0.1:8000";
+  }
+
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, (m) => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+    }[m]));
+  }
+
+  // -----------------------------
+  // User handling
+  // -----------------------------
+  async function fetchUsers() {
+    clearBoxes();
+    setStatus("idle", "Loading users...");
+    const btn = $("btnLoadUsers");
+    if (btn) btn.disabled = true;
+
+    try {
+      const url = `${baseUrl()}/users`;
+      const resp = await fetch(url, { headers: { "Accept": "application/json" } });
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => "");
+        throw new Error(`HTTP ${resp.status} ${resp.statusText}\n${text}`);
+      }
+      const data = await resp.json();
+      if (!Array.isArray(data)) throw new Error("Unexpected response: expected JSON array from /users");
+
+      users = data;
+      rebuildUserSelects();
+      
+      const userCount = $("userCount");
+      if (userCount) userCount.textContent = String(users.length);
+      
+      setStatus("idle", "Users loaded");
+      showOk(`Users loaded: ${data.length}.\nPlease select a user to enable liking and commenting functionality.`);
+    } catch (e) {
+      showError(String(e?.message || e));
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  function rebuildUserSelects() {
+    // Rebuild current user select
+    const currentUserSel = $("currentUser");
+    if (currentUserSel) {
+      currentUserSel.innerHTML = `<option value="" selected>Select a user to interact</option>`;
+      for (const u of users) {
+        const opt = document.createElement("option");
+        opt.value = String(u.username);
+        opt.textContent = `${u.display_name || u.username} (@${u.username})`;
+        currentUserSel.appendChild(opt);
+      }
+    }
+
+    // Rebuild user history filter
+    const userHistorySel = $("userHistoryFilter");
+    if (userHistorySel) {
+      userHistorySel.innerHTML = `<option value="" selected>All Users</option>`;
+      for (const u of users) {
+        const opt = document.createElement("option");
+        opt.value = String(u.username);
+        opt.textContent = `${u.display_name || u.username} (@${u.username})`;
+        userHistorySel.appendChild(opt);
+      }
+    }
+  }
+
+  function updateCurrentUserDisplay() {
+    const sel = $("currentUser");
+    if (!sel) return;
+    
+    currentUser = sel.value;
+    const display = $("currentUserDisplay");
+    if (display) display.textContent = currentUser || "—";
+    
+    // If user is selected and we have messages, re-render to show like status
+    if (currentUser && allMessages.length > 0) {
+      render();
+    }
+  }
+
+  function updateUserFilter() {
+    const sel = $("userHistoryFilter");
+    if (!sel) return;
+    
+    filterByUser = sel.value;
+    const display = $("filterUserDisplay");
+    if (display) display.textContent = filterByUser || "All";
+    
+    render();
+  }
+
+  // -----------------------------
+  // Group handling
+  // -----------------------------
+  function normalizeLoose(s) {
+    return String(s || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[’‘]/g, "'")
+      .replace(/\s+/g, " ")
+      .replace(/[–—]/g, "-");
+  }
+
+  function rebuildGroupSelect() {
+    const sel = $("groupSelect");
+    if (!sel) return;
+    
+    sel.innerHTML = `<option value="" selected>(Please select)</option>`;
+    for (const g of groups) {
+      const opt = document.createElement("option");
+      opt.value = String(g.id);
+      opt.textContent = `${g.name}  (id=${g.id})`;
+      sel.appendChild(opt);
+    }
+    
+    const groupCount = $("groupCount");
+    if (groupCount) groupCount.textContent = String(groups.length);
+  }
+
+  function selectGroupById(id) {
+    const sel = $("groupSelect");
+    if (sel) sel.value = String(id);
+  }
+
+  function getSelectedGroup() {
+    const sel = $("groupSelect");
+    if (!sel) return null;
+    
+    const id = sel.value;
+    if (!id) return null;
+    return groups.find(g => String(g.id) === String(id)) || null;
+  }
+
+  function fuzzyPickGroup(query) {
+    const q = normalizeLoose(query);
+    if (!q) return null;
+
+    let best = null;
+    let bestScore = -1;
+
+    for (const g of groups) {
+      const nameN = normalizeLoose(g.name);
+      let score = 0;
+      if (nameN.includes(q)) score += 5;
+      if (nameN.startsWith(q)) score += 4;
+
+      const qTokens = new Set(q.split(" "));
+      const nTokens = new Set(nameN.split(" "));
+      let overlap = 0;
+      for (const t of qTokens) if (nTokens.has(t)) overlap++;
+      score += overlap;
+
+      score += Math.max(0, 2 - Math.abs(nameN.length - q.length) / 20);
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = g;
+      }
+    }
+    return best;
+  }
+
+  // -----------------------------
+  // Messages and Likes
+  // -----------------------------
+  function buildMessagesUrl(realGroupName) {
+    const limitInput = $("limit");
+    const limit = limitInput ? Number(limitInput.value || 50) : 50;
+    
+    const params = new URLSearchParams();
+    params.set("limit", String(limit));
+
+    const afterInput = $("after");
+    const beforeInput = $("before");
+    const after = afterInput ? afterInput.value.trim() : "";
+    const before = beforeInput ? beforeInput.value.trim() : "";
+    
+    if (after) params.set("after", after);
+    if (before) params.set("before", before);
+
+    // Add username parameter for like checking
+    if (currentUser) {
+        params.set("username", currentUser);
+    }
+
+    // Include comments in the response
+    params.set("include_comments", "true");
+
+    const groupPath = encodeURIComponent(realGroupName);
+    return `${baseUrl()}/groups/${groupPath}/messages?${params.toString()}`;
+  }
+
+  async function toggleLike(messageId, currentLiked) {
+    if (!currentUser) {
+      showError("Please select a user first to like posts.");
+      return;
+    }
+
+    try {
+      const url = `${baseUrl()}/messages/${messageId}/like`;
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: currentUser })
+      });
+
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => "");
+        throw new Error(`HTTP ${resp.status} ${resp.statusText}\n${text}`);
+      }
+
+      const result = await resp.json();
+      
+      // Update the message in allMessages
+      const messageIndex = allMessages.findIndex(m => m.id === messageId);
+      if (messageIndex !== -1) {
+        allMessages[messageIndex].like_count = result.like_count;
+        allMessages[messageIndex].liked_by_current_user = result.liked_by_user;
+      }
+
+      // Re-render and update analytics
+      render();
+      updateAnalytics();
+      
+      showOk(`Post ${result.action}! Likes: ${result.like_count}`);
+    } catch (e) {
+      showError(String(e?.message || e));
+    }
+  }
+
+  async function addComment(messageId) {
+    if (!currentUser) {
+        showError("Please select a user first to comment on posts.");
+        return;
+    }
+
+    const commentInput = $(`comment-input-${messageId}`);
+    if (!commentInput) return;
+    
+    const commentText = commentInput.value.trim();
+    
+    if (!commentText) {
+        showError("Comment cannot be empty.");
+        return;
+    }
+
+    try {
+        const url = `${baseUrl()}/messages/${messageId}/comments`;
+        const resp = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ 
+                username: currentUser,
+                content: commentText
+            })
+        });
+
+        if (!resp.ok) {
+            const text = await resp.text().catch(() => "");
+            throw new Error(`HTTP ${resp.status} ${resp.statusText}\n${text}`);
+        }
+
+        const newComment = await resp.json();
+        
+        // Find the message and add comment
+        const messageIndex = allMessages.findIndex(m => m.id === messageId);
+        if (messageIndex !== -1) {
+            if (!allMessages[messageIndex].comments) {
+                allMessages[messageIndex].comments = [];
+            }
+            allMessages[messageIndex].comments.push(newComment);
+            
+            // Update comment count
+            allMessages[messageIndex].comment_count = (allMessages[messageIndex].comment_count || 0) + 1;
+            
+            // Clear input
+            commentInput.value = "";
+        }
+
+        // Re-render and update analytics
+        render();
+        updateAnalytics();
+        
+        showOk("Comment added successfully!");
+    } catch (e) {
+        showError(String(e?.message || e));
+    }
+  }
+
+  async function createPost() {
+    if (!currentUser) {
+      showError("Please select a user first to create posts.");
+      return;
+    }
+
+    const contentInput = $("newPostContent");
+    const imageUrlInput = $("#imageUrl");
+    const content = contentInput ? contentInput.value.trim() : "";
+    const imageUrl = imageUrlInput ? imageUrlInput.value.trim() : "";
+
+    if (!content && !imageUrl) {
+      showError("Post must have either text or image.");
+      return;
+    }
+
+    const g = getSelectedGroup();
+    if (!g) {
+      showError("Please select a group first.");
+      return;
+    }
+
+    try {
+      const url = `${baseUrl()}/groups/${encodeURIComponent(g.name)}/messages`;
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          username: currentUser,
+          content: content,
+          image_url: imageUrl
+        })
+      });
+
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => "");
+        throw new Error(`HTTP ${resp.status} ${resp.statusText}\n${text}`);
+      }
+
+      const result = await resp.json();
+      
+      // Clear input fields
+      if (contentInput) contentInput.value = "";
+      if (imageUrlInput) imageUrlInput.value = "";
+      
+      // Reload messages to show the new post
+      loadMessages();
+      
+      showOk("Post created successfully!");
+    } catch (e) {
+      showError(String(e?.message || e));
+    }
+  }
+
+  // -----------------------------
+  // Analytics Functions
+  // -----------------------------
+  function updateAnalytics() {
+    if (allMessages.length === 0) return;
+    
+    // Most Liked Posts
+    const mostLiked = [...allMessages]
+      .filter(m => (m.like_count || 0) > 0)
+      .sort((a, b) => (b.like_count || 0) - (a.like_count || 0))
+      .slice(0, 5);
+    
+    const mostLikedContainer = $("mostLikedPosts");
+    if (mostLikedContainer) {
+      if (mostLiked.length === 0) {
+        mostLikedContainer.innerHTML = `<div class="empty">No likes yet</div>`;
+      } else {
+        mostLikedContainer.innerHTML = mostLiked.map((post, index) => `
+          <div class="analytics-item">
+            <div>${index + 1}. ${escapeHtml(post.username || 'Unknown')}</div>
+            <div class="analytics-count">${post.like_count} ❤️</div>
+          </div>
+        `).join('');
+      }
+    }
+    
+    // Most Active Users
+    const userActivity = {};
+    allMessages.forEach(post => {
+      const username = post.username || 'Unknown';
+      userActivity[username] = (userActivity[username] || 0) + 1;
+    });
+    
+    const mostActive = Object.entries(userActivity)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 5)
+      .map(([username, count]) => ({ username, count }));
+    
+    const mostActiveContainer = $("mostActiveUsers");
+    if (mostActiveContainer) {
+      if (mostActive.length === 0) {
+        mostActiveContainer.innerHTML = `<div class="empty">No activity data</div>`;
+      } else {
+        mostActiveContainer.innerHTML = mostActive.map((user, index) => `
+          <div class="analytics-item">
+            <div>${index + 1}. ${escapeHtml(user.username)}</div>
+            <div class="analytics-count">${user.count} posts</div>
+          </div>
+        `).join('');
+      }
+    }
+    
+    // Recent Activity
+    const recentActivity = [...allMessages]
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      .slice(0, 5);
+    
+    const recentActivityContainer = $("recentActivity");
+    if (recentActivityContainer) {
+      recentActivityContainer.innerHTML = recentActivity.map(post => `
+        <div class="analytics-item">
+          <div>@${escapeHtml(post.username || 'Unknown')}</div>
+          <div class="analytics-count">${formatTimeAgo(post.created_at)}</div>
+        </div>
+      `).join('');
+    }
+    
+    // Statistics
+    const statsContainer = $("statistics");
+    if (statsContainer) {
+      const totalPosts = allMessages.length;
+      const totalLikes = allMessages.reduce((sum, post) => sum + (post.like_count || 0), 0);
+      const totalComments = allMessages.reduce((sum, post) => sum + ((post.comments && post.comments.length) || 0), 0);
+      const uniqueUsers = new Set(allMessages.map(post => post.username)).size;
+      const avgLikesPerPost = totalPosts > 0 ? (totalLikes / totalPosts).toFixed(1) : 0;
+      
+      statsContainer.innerHTML = `
+        <div class="analytics-item">
+          <div>Total Posts</div>
+          <div class="analytics-count">${totalPosts}</div>
+        </div>
+        <div class="analytics-item">
+          <div>Total Likes</div>
+          <div class="analytics-count">${totalLikes}</div>
+        </div>
+        <div class="analytics-item">
+          <div>Total Comments</div>
+          <div class="analytics-count">${totalComments}</div>
+        </div>
+        <div class="analytics-item">
+          <div>Unique Users</div>
+          <div class="analytics-count">${uniqueUsers}</div>
+        </div>
+        <div class="analytics-item">
+          <div>Avg Likes/Post</div>
+          <div class="analytics-count">${avgLikesPerPost}</div>
+        </div>
+      `;
+    }
+  }
+
+  function applyFilters(messages) {
+    const searchInput = $("search");
+    const viewModeSelect = $("viewMode");
+    
+    if (!searchInput || !viewModeSelect) return messages;
+    
+    const q = searchInput.value.trim().toLowerCase();
+    const view = viewModeSelect.value;
+
+    let out = messages;
+
+    // Apply user filter
+    if (filterByUser) {
+      out = out.filter(m => m.username === filterByUser);
+    }
+
+    if (view === "textOnly") out = out.filter(m => (m.content && m.content.trim() !== ""));
+    if (view === "imageOnly") out = out.filter(m => (m.image_url && m.image_url.trim() !== ""));
+
+    if (q) {
+      out = out.filter(m => {
+        const u = (m.username || "").toLowerCase();
+        const c = (m.content || "").toLowerCase();
+        const img = (m.image_url || "").toLowerCase();
+        return u.includes(q) || c.includes(q) || img.includes(q);
+      });
+    }
+
+    // Apply sorting
+    out = [...out].sort((a,b) => {
+      if (currentSort === 'popularity') {
+        const likesA = a.like_count || 0;
+        const likesB = b.like_count || 0;
+        if (likesB !== likesA) return likesB - likesA;
+        // If likes are equal, sort by time
+        return new Date(b.created_at) - new Date(a.created_at);
+      } else if (currentSort === 'most_commented') {
+        const commentsA = a.comment_count || (a.comments ? a.comments.length : 0);
+        const commentsB = b.comment_count || (b.comments ? b.comments.length : 0);
+        if (commentsB !== commentsA) return commentsB - commentsA;
+        // If comments are equal, sort by time
+        return new Date(b.created_at) - new Date(a.created_at);
+      } else if (currentSort === 'asc') {
+        return new Date(a.created_at) - new Date(b.created_at);
+      } else { // 'desc'
+        return new Date(b.created_at) - new Date(a.created_at);
+      }
+    });
+
+    return out;
+  }
+
+  function formatTimeAgo(dateString) {
+    if (!dateString) return "Unknown";
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffMins < 60) {
+      return `${diffMins}m ago`;
+    } else if (diffHours < 24) {
+      return `${diffHours}h ago`;
+    } else if (diffDays < 7) {
+      return `${diffDays}d ago`;
+    } else {
+      return date.toLocaleDateString();
+    }
+  }
+
+  function render() {
+    const list = $("list");
+    if (!list) return;
+    
+    const filtered = applyFilters(allMessages);
+
+    const countElem = $("count");
+    const filteredCountElem = $("filteredCount");
+    if (countElem) countElem.textContent = String(allMessages.length);
+    if (filteredCountElem) filteredCountElem.textContent = String(filtered.length);
+
+    if (filtered.length === 0) {
+      const message = filterByUser 
+        ? `No messages from user "${filterByUser}" to display`
+        : `No messages to display (group may have no messages / filters too strict / not loaded yet).`;
+      list.innerHTML = `<div class="empty">${message}</div>`;
+      return;
+    }
+
+    list.innerHTML = filtered.map(m => {
+      const username = escapeHtml(m.username ?? "");
+      const displayName = escapeHtml(m.display_name || username);
+      const avatarUrl = m.avatar_url || "";
+      const time = escapeHtml(m.created_at ?? "");
+      const content = (m.content ?? "").trim();
+      const imageUrl = (m.image_url ?? "").trim();
+      const likeCount = m.like_count || 0;
+      const liked = m.liked_by_current_user || false;
+      const comments = m.comments || [];
+      const commentCount = comments.length;
+
+      const avatarHtml = avatarUrl 
+        ? `<img src="${escapeHtml(avatarUrl)}" class="avatar" alt="${username}">`
+        : `<div class="avatar"></div>`;
+
+      const contentHtml = content ? `<div class="msg">${escapeHtml(content)}</div>` : "";
+      
+      // Fixed image display - ensure proper URL handling
+      let imgHtml = '';
+      if (imageUrl) {
+        // Check if it's a valid image URL
+        const imgUrl = imageUrl.trim();
+        if (imgUrl.match(/\.(jpeg|jpg|gif|png|webp|bmp)$/i) || imgUrl.startsWith('http')) {
+          imgHtml = `
+            <div class="imgwrap">
+              <a href="${escapeHtml(imgUrl)}" target="_blank" rel="noreferrer">
+                <img src="${escapeHtml(imgUrl)}" alt="posted image" loading="lazy" 
+                     onerror="this.style.display='none'; this.parentElement.innerHTML='<div style=\'color:var(--muted);padding:10px;\'>Image failed to load: ${escapeHtml(imgUrl.substring(0, 50))}...</div>';" />
+              </a>
+            </div>`;
+        } else {
+          imgHtml = `<div class="hint">Image URL: <a href="${escapeHtml(imgUrl)}" target="_blank">${escapeHtml(imgUrl)}</a></div>`;
+        }
+      }
+
+      const likeBtnClass = liked ? "like-btn liked" : "like-btn";
+      const likeIcon = liked ? "❤️" : "🤍";
+
+      // Comments section
+      let commentsHtml = '';
+      if (comments.length > 0) {
+        commentsHtml = `
+          <div class="comments-section">
+            <div class="comments-title">${commentCount} comment${commentCount > 1 ? 's' : ''}</div>
+            <div class="comments-list">
+              ${comments.map(c => `
+                <div class="comment-item">
+                  <div class="comment-header">
+                    <div class="comment-user">@${escapeHtml(c.username || '')}</div>
+                    <div class="comment-time">${formatTimeAgo(c.created_at)}</div>
+                  </div>
+                  <div class="comment-text">${escapeHtml(c.content || '')}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      }
+
+      // Add comment form
+      const commentForm = currentUser ? `
+        <div class="comment-form">
+          <textarea id="comment-input-${m.id}" placeholder="Write a comment..." rows="2"></textarea>
+          <button class="comment-btn" onclick="window.addComment(${m.id})">Comment</button>
+        </div>
+      ` : `<div class="hint">Please select a user to comment on this post.</div>`;
+
+      return `
+        <div class="card" id="message-${m.id}">
+          <div class="card-header">
+            <div class="user-info">
+              ${avatarHtml}
+              <div>
+                <div class="username">${displayName}</div>
+                <div class="display-name">@${username}</div>
+              </div>
+            </div>
+            <div class="time">${formatTimeAgo(time)}<br>#${m.id}</div>
+          </div>
+          ${contentHtml}
+          ${imgHtml}
+          <div class="actions">
+            <button class="${likeBtnClass}" onclick="window.toggleLike(${m.id}, ${liked})">
+              <span class="like-icon">${likeIcon}</span>
+              <span class="like-count">${likeCount}</span>
+            </button>
+            <div style="display:flex; align-items:center; gap:6px; color:var(--muted);">
+              <span>💬</span>
+              <span>${commentCount}</span>
+            </div>
+          </div>
+          ${commentsHtml}
+          ${commentForm}
+        </div>
+      `;
+    }).join("");
+  }
+
+  // -----------------------------
+  // Fetch /groups
+  // -----------------------------
+  async function fetchGroups() {
+    clearBoxes();
+    setStatus("idle", "Loading groups...");
+    const btn = $("btnLoadGroups");
+    if (btn) btn.disabled = true;
+
+    try {
+      const url = `${baseUrl()}/groups`;
+      const resp = await fetch(url, { headers: { "Accept": "application/json" } });
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => "");
+        throw new Error(`HTTP ${resp.status} ${resp.statusText}\n${text}`);
+      }
+      const data = await resp.json();
+      if (!Array.isArray(data)) throw new Error("Unexpected response: expected JSON array from /groups");
+
+      groups = data;
+      rebuildGroupSelect();
+      setStatus("idle", "Groups loaded");
+
+      showOk(`Groups loaded: ${data.length}.\nTip: Select from the dropdown to avoid name mismatch caused by manual typing.`);
+    } catch (e) {
+      showError(String(e?.message || e));
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  // -----------------------------
+  // Fetch messages
+  // -----------------------------
+  async function loadCommentsForMessages() {
+    for (const msg of allMessages) {
+        try {
+            const commentsUrl = `${baseUrl()}/messages/${msg.id}/comments`;
+            const resp = await fetch(commentsUrl);
+            if (resp.ok) {
+                const comments = await resp.json();
+                if (Array.isArray(comments)) {
+                    msg.comments = comments;
+                    msg.comment_count = comments.length;
+                }
+            }
+        } catch (e) {
+            console.warn(`Failed to load comments for message ${msg.id}:`, e.message);
+        }
+    }
+  }
+
+  async function loadMessages() {
+    clearBoxes();
+
+    const g = getSelectedGroup();
+    if (!g) {
+        showError("Please click Fetch /groups first, then select a group from the dropdown.");
+        return;
+    }
+
+    const url = buildMessagesUrl(g.name);
+    setStatus("idle", "Loading messages...");
+    const btn = $("btnLoadMsgs");
+    if (btn) btn.disabled = true;
+
+    try {
+        const resp = await fetch(url, { headers: { "Accept": "application/json" } });
+        if (!resp.ok) {
+            const text = await resp.text().catch(() => "");
+            throw new Error(`HTTP ${resp.status} ${resp.statusText}\n${text}`);
+        }
+        const data = await resp.json();
+        if (!Array.isArray(data)) throw new Error("Unexpected response: expected JSON array from /messages");
+
+        allMessages = data;
+        
+        // 为每条消息加载评论
+        await loadCommentsForMessages();
+        
+        showOk(`Matched group:\n- id: ${g.id}\n- name: ${g.name}\n\nMessages loaded: ${data.length}`);
+        setStatus("idle", "Messages loaded");
+        render();
+        updateAnalytics();
+    } catch (e) {
+        showError(String(e?.message || e));
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+  }
+
+  // -----------------------------
+  // Auto refresh
+  // -----------------------------
+  function setupAutoRefresh() {
+    if (timer) { clearInterval(timer); timer = null; }
+
+    const select = $("autoRefresh");
+    if (!select) return;
+    
+    const v = select.value;
+    if (v === "off") {
+      setStatus("idle", "Idle");
+      return;
+    }
+    const ms = Number(v);
+    timer = setInterval(() => {
+      if (getSelectedGroup()) loadMessages();
+    }, ms);
+    setStatus("idle", `Auto refresh every ${Math.round(ms/1000)}s`);
+  }
+
+  // -----------------------------
+  // Export
+  // -----------------------------
+  function exportJson() {
+    const filtered = applyFilters(allMessages);
+    const g = getSelectedGroup();
+    const blob = new Blob([JSON.stringify(filtered, null, 2)], { type:"application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `chat_${(g?.id ?? "group")}_${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  // -----------------------------
+  // Event listeners
+  // -----------------------------
+  function setupEventListeners() {
+    const btnLoadUsers = $("btnLoadUsers");
+    const btnLoadGroups = $("btnLoadGroups");
+    const btnLoadMsgs = $("btnLoadMsgs");
+    const btnExport = $("btnExport");
+    const btnClear = $("btnClear");
+    const btnTop = $("btnTop");
+    const btnBottom = $("btnBottom");
+    const btnCreatePost = $("btnCreatePost");
+    const btnClearPost = $("btnClearPost");
+    const btnClearUserFilter = $("btnClearUserFilter");
+    const btnRefreshAnalytics = $("btnRefreshAnalytics");
+    const searchInput = $("search");
+    const viewModeSelect = $("viewMode");
+    const currentUserSelect = $("currentUser");
+    const userHistoryFilter = $("userHistoryFilter");
+    const groupFuzzyInput = $("groupFuzzy");
+    const autoRefreshSelect = $("autoRefresh");
+    
+    // Sort buttons
+    const sortButtons = document.querySelectorAll('.sort-btn');
+    
+    if (btnLoadUsers) btnLoadUsers.addEventListener("click", fetchUsers);
+    if (btnLoadGroups) btnLoadGroups.addEventListener("click", fetchGroups);
+    if (btnLoadMsgs) btnLoadMsgs.addEventListener("click", loadMessages);
+    if (btnExport) btnExport.addEventListener("click", exportJson);
+    if (btnCreatePost) btnCreatePost.addEventListener("click", createPost);
+    if (btnClearPost) btnClearPost.addEventListener("click", () => {
+      const contentInput = $("newPostContent");
+      const imageUrlInput = $("#imageUrl");
+      if (contentInput) contentInput.value = "";
+      if (imageUrlInput) imageUrlInput.value = "";
+    });
+    if (btnClearUserFilter) btnClearUserFilter.addEventListener("click", () => {
+      if (userHistoryFilter) userHistoryFilter.value = "";
+      updateUserFilter();
+    });
+    if (btnRefreshAnalytics) btnRefreshAnalytics.addEventListener("click", updateAnalytics);
+    
+    if (btnClear) btnClear.addEventListener("click", () => {
+      allMessages = [];
+      if (searchInput) searchInput.value = "";
+      render();
+      clearBoxes();
+      setStatus("idle", "Cleared");
+    });
+    if (btnTop) btnTop.addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
+    if (btnBottom) btnBottom.addEventListener("click", () => window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }));
+    if (searchInput) searchInput.addEventListener("input", render);
+    if (viewModeSelect) viewModeSelect.addEventListener("change", render);
+    if (currentUserSelect) currentUserSelect.addEventListener("change", updateCurrentUserDisplay);
+    if (userHistoryFilter) userHistoryFilter.addEventListener("change", updateUserFilter);
+    if (autoRefreshSelect) autoRefreshSelect.addEventListener("change", setupAutoRefresh);
+
+    if (groupFuzzyInput) {
+      groupFuzzyInput.addEventListener("input", () => {
+        if (groups.length === 0) return;
+        const q = groupFuzzyInput.value;
+        const best = fuzzyPickGroup(q);
+        if (best) {
+          selectGroupById(best.id);
+          showOk(`Fuzzy match selected:\n- id: ${best.id}\n- name: ${best.name}\n\n(Request still uses the DB's real name)`);
+        }
+      });
+    }
+    
+    // Sort button event listeners
+    sortButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        // Remove active class from all buttons
+        sortButtons.forEach(b => b.classList.remove('active'));
+        // Add active class to clicked button
+        btn.classList.add('active');
+        
+        // Update sort type
+        currentSort = btn.dataset.sort;
+        render();
+      });
+    });
+  }
+
+  // Make functions available globally for onclick handlers
+  window.toggleLike = toggleLike;
+  window.addComment = addComment;
+
+  // Initialize
+  document.addEventListener('DOMContentLoaded', function() {
+    setupEventListeners();
+    render();
+  });
+</script>
+
+</body>
+</html>

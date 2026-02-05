@@ -23,11 +23,14 @@ Then:
 from __future__ import annotations
 
 import os
+import time
+import uuid
 import sqlite3
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response, UploadFile, File, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 # ---- Vanna imports (based on your snippet) ----
@@ -41,11 +44,68 @@ from vanna.integrations.local.agent_memory import DemoAgentMemory
 
 # If you want DeepSeek via OpenAI-compatible API:
 from vanna.integrations.openai import OpenAILlmService
+from passlib.hash import pbkdf2_sha256 as pwd_hasher
 
 from fastapi.middleware.cors import CORSMiddleware
 
 
 DB_PATH = "./demo_chat_app.sqlite"
+
+# =========================================================
+# 0) Basic rate limiting + sanitization helpers
+# =========================================================
+_RATE_LIMIT: Dict[str, Dict[str, Any]] = {}
+
+
+def _client_key(request: Optional[Request]) -> str:
+    if not request or not request.client:
+        return "unknown"
+    return request.client.host or "unknown"
+
+
+def check_rate_limit(request: Optional[Request], key: str, limit: int = 30, window_sec: int = 60) -> None:
+    """Simple in-memory, per-IP+key fixed-window rate limit."""
+    now = time.time()
+    client = _client_key(request)
+    bucket_key = f"{client}:{key}"
+    state = _RATE_LIMIT.get(bucket_key)
+    if not state or (now - state["start"]) > window_sec:
+        _RATE_LIMIT[bucket_key] = {"start": now, "count": 1}
+        return
+    state["count"] += 1
+    if state["count"] > limit:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
+
+
+def sanitize_text(value: Optional[str], max_len: Optional[int] = None) -> Optional[str]:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    if max_len is not None:
+        cleaned = cleaned[:max_len]
+    return cleaned
+
+
+def get_current_user(request: Request) -> str:
+    current = request.cookies.get('session_user')
+    if not current:
+        raise HTTPException(status_code=401, detail='Not authenticated')
+    return current
+
+
+def is_mutual_follow(conn: sqlite3.Connection, user_a: str, user_b: str) -> bool:
+    a_id = get_user_id(conn, user_a)
+    b_id = get_user_id(conn, user_b)
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM follows f1
+        JOIN follows f2 ON f1.follower_id = f2.followee_id AND f1.followee_id = f2.follower_id
+        WHERE f1.follower_id = ? AND f1.followee_id = ?
+        """,
+        (a_id, b_id),
+    ).fetchone()
+    return bool(row)
 
 
 # =========================================================
@@ -128,6 +188,12 @@ def init_db(db_path: str = DB_PATH) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+    
+
+
+
 
 
 def get_conn() -> sqlite3.Connection:
@@ -262,26 +328,34 @@ def get_message_like_info(conn: sqlite3.Connection, message_id: int, username: O
 # =========================================================
 class SimpleUserResolver(UserResolver):
     async def resolve_user(self, request_context: RequestContext) -> User:
-        user_email = request_context.get_cookie("vanna_email")
-        if not user_email:
-            raise ValueError("Missing 'vanna_email' cookie for user identification")
+        # Read session username from cookie set by our auth endpoints
+        username = request_context.get_cookie("session_user")
+        if not username:
+            raise ValueError("Missing 'session_user' cookie for user identification")
 
-        if user_email == "admin@example.com":
-            return User(id="admin1", email=user_email, group_memberships=["admin"])
-
-        return User(id="user1", email=user_email, group_memberships=["user"])
+        return User(id=username, email=f"{username}@example.com", group_memberships=["user"])
 
 # =========================================================
 # 5) Build FastAPI + mount Vanna server
 # =========================================================
 init_db(DB_PATH)
 
+# Ensure users table has a password_hash column (migrate if needed)
+conn = sqlite3.connect(DB_PATH)
+try:
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
+    if 'password_hash' not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+        conn.commit()
+finally:
+    conn.close()
+
 app = FastAPI(title="Chat Group App + Vanna", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:5173", "http://localhost:5173", "http://127.0.0.1:8000", "http://localhost:8000", "*"],
-    allow_credentials=False,
+    allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -299,7 +373,7 @@ tools.register_local_tool(SaveQuestionToolArgsTool(), access_groups=["admin"])
 tools.register_local_tool(SearchSavedCorrectToolUsesTool(), access_groups=["admin", "user"])
 
 # HARD-CODE API key here
-DEEPSEEK_API_KEY = "sk-7439e8bea58b4a0a9f1e9f718c772c2e" #os.getenv("DEEPSEEK_API_KEY", "").strip()
+DEEPSEEK_API_KEY = "sk-5464b8958c224207a77e1bd9ef161343" #os.getenv("DEEPSEEK_API_KEY", "").strip()
 
 if not DEEPSEEK_API_KEY:
     # You can still run REST APIs without LLM, but Vanna needs the key to work properly.
@@ -330,6 +404,75 @@ chat_handler = ChatHandler(agent)
 # - GET  / (可选 web UI，看版本实现)
 register_chat_routes(app, chat_handler)
 
+# Ensure uploads directory exists and serve it
+UPLOAD_DIR = os.path.join(os.path.dirname(__file__), 'uploads')
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+app.mount('/uploads', StaticFiles(directory=UPLOAD_DIR), name='uploads')
+
+# Create follows table if missing (asymmetric follow model)
+conn = get_conn()
+try:
+        conn.execute('''
+        CREATE TABLE IF NOT EXISTS follows (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            follower_id INTEGER NOT NULL,
+            followee_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(follower_id, followee_id),
+            FOREIGN KEY (follower_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (followee_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        ''')
+        conn.commit()
+finally:
+        conn.close()
+
+# Create follow requests table if missing
+conn = get_conn()
+try:
+    conn.execute('''
+    CREATE TABLE IF NOT EXISTS follow_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        requester_id INTEGER NOT NULL,
+        target_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(requester_id, target_id),
+        FOREIGN KEY (requester_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (target_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    ''')
+    conn.commit()
+finally:
+    conn.close()
+
+# Create comments table if missing
+conn = get_conn()
+try:
+        conn.execute('''
+        CREATE TABLE IF NOT EXISTS comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        ''')
+        conn.commit()
+finally:
+        conn.close()
+
+# Ensure a 'global' group exists for the public feed
+conn = get_conn()
+try:
+    row = conn.execute("SELECT id FROM groups WHERE name = ?", ('global',)).fetchone()
+    if not row:
+        conn.execute("INSERT INTO groups (name, description) VALUES (?, ?)", ('global', 'Global public feed'))
+        conn.commit()
+finally:
+    conn.close()
+
 
 # =========================================================
 # 6) REST endpoints for chat app
@@ -339,11 +482,147 @@ def health():
     return {"ok": True, "db_path": DB_PATH}
 
 
+class RegisterReq(BaseModel):
+    username: str = Field(..., min_length=1, max_length=64)
+    password: str = Field(..., min_length=6)
+    display_name: Optional[str] = Field(None, max_length=128)
+    avatar_url: Optional[str] = Field(None, max_length=512)
+
+
+@app.post('/auth/register')
+def auth_register(req: RegisterReq, response: Response, request: Request):
+    check_rate_limit(request, "auth_register", limit=10, window_sec=60)
+    conn = get_conn()
+    try:
+        req.username = sanitize_text(req.username, 64) or ""
+        req.display_name = sanitize_text(req.display_name, 128)
+        req.avatar_url = sanitize_text(req.avatar_url, 512)
+        if not req.username:
+            raise HTTPException(status_code=400, detail="Username required")
+        # check username
+        existing = conn.execute('SELECT id FROM users WHERE username = ?', (req.username,)).fetchone()
+        if existing:
+            raise HTTPException(status_code=409, detail='Username already exists')
+
+        # bcrypt has a 72-byte input limit; truncate UTF-8 bytes safely
+        pw_bytes = req.password.encode('utf-8')[:72]
+        pw_trunc = pw_bytes.decode('utf-8', errors='ignore')
+        password_hash = pwd_hasher.hash(pw_trunc)
+        conn.execute(
+            'INSERT INTO users (username, display_name, avatar_url, password_hash) VALUES (?, ?, ?, ?)',
+            (req.username, req.display_name or req.username, req.avatar_url, password_hash)
+        )
+        user_id = conn.execute('SELECT last_insert_rowid() as id').fetchone()['id']
+        conn.execute('INSERT INTO user_profiles (user_id) VALUES (?)', (user_id,))
+        # ensure global group and add membership
+        row = conn.execute("SELECT id FROM groups WHERE name = ?", ('global',)).fetchone()
+        if row:
+            gid = int(row['id'])
+        else:
+            conn.execute("INSERT INTO groups (name, description) VALUES (?, ?)", ('global', 'Global public feed'))
+            gid = conn.execute("SELECT last_insert_rowid() as id").fetchone()['id']
+        try:
+            conn.execute("INSERT INTO group_members (group_id, user_id) VALUES (?, ?)", (gid, user_id))
+        except sqlite3.IntegrityError:
+            pass
+        conn.commit()
+        # set session cookie
+        # Set session cookie. For local development `secure=False` (HTTP).
+        # In production behind HTTPS set `secure=True` and tighten `max_age` as needed.
+        response.set_cookie(
+            'session_user',
+            req.username,
+            httponly=True,
+            samesite='lax',
+            max_age=60 * 60 * 24 * 7,
+            path='/',
+            secure=False,
+        )
+        return {'ok': True, 'username': req.username}
+    finally:
+        conn.close()
+
+
+class LoginReq(BaseModel):
+    username: str
+    password: str
+
+
+@app.post('/auth/login')
+def auth_login(req: LoginReq, response: Response, request: Request):
+    check_rate_limit(request, "auth_login", limit=20, window_sec=60)
+    conn = get_conn()
+    try:
+        req.username = sanitize_text(req.username, 64) or ""
+        if not req.username:
+            raise HTTPException(status_code=400, detail="Username required")
+        row = conn.execute('SELECT password_hash FROM users WHERE username = ?', (req.username,)).fetchone()
+        if not row or not row['password_hash']:
+            raise HTTPException(status_code=401, detail='Invalid username or password')
+        pw_hash = row['password_hash']
+        # truncate provided password bytes to bcrypt limit before verify
+        pw_bytes = req.password.encode('utf-8')[:72]
+        pw_trunc = pw_bytes.decode('utf-8', errors='ignore')
+        if not pwd_hasher.verify(pw_trunc, pw_hash):
+            raise HTTPException(status_code=401, detail='Invalid username or password')
+        response.set_cookie(
+            'session_user',
+            req.username,
+            httponly=True,
+            samesite='lax',
+            max_age=60 * 60 * 24 * 7,
+            path='/',
+            secure=False,
+        )
+
+        # ensure global group membership on login
+        row = conn.execute("SELECT id FROM groups WHERE name = ?", ('global',)).fetchone()
+        if row:
+            gid = int(row['id'])
+            user_id = get_user_id(conn, req.username)
+            try:
+                conn.execute("INSERT INTO group_members (group_id, user_id) VALUES (?, ?)", (gid, user_id))
+                conn.commit()
+            except sqlite3.IntegrityError:
+                pass
+
+        return {'ok': True, 'username': req.username}
+    finally:
+        conn.close()
+
+
+@app.post('/auth/logout')
+def auth_logout(response: Response, request: Request):
+    check_rate_limit(request, "auth_logout", limit=30, window_sec=60)
+    # Clear the session cookie
+    response.delete_cookie('session_user', path='/')
+    return {'ok': True}
+
+
+@app.get('/auth/me')
+def auth_me(request: Request):
+    current = request.cookies.get('session_user')
+    if not current:
+        raise HTTPException(status_code=401, detail='Not authenticated')
+    conn = get_conn()
+    try:
+        user_id = get_user_id(conn, current)
+        return get_user_info(conn, user_id)
+    finally:
+        conn.close()
+
+
 @app.post("/users")
-def create_user(req: CreateUserReq):
+def create_user(req: CreateUserReq, request: Request):
+    check_rate_limit(request, "create_user", limit=20, window_sec=60)
     conn = get_conn()
     try:
         try:
+            req.username = sanitize_text(req.username, 64) or ""
+            req.display_name = sanitize_text(req.display_name, 128)
+            req.avatar_url = sanitize_text(req.avatar_url, 512)
+            if not req.username:
+                raise HTTPException(status_code=400, detail="Username required")
             conn.execute(
                 "INSERT INTO users (username, display_name, avatar_url) VALUES (?, ?, ?)",
                 (req.username, req.display_name or req.username, req.avatar_url)
@@ -365,19 +644,34 @@ def create_user(req: CreateUserReq):
 
 
 @app.get("/users")
-def list_users():
+def list_users(query: Optional[str] = None):
     conn = get_conn()
     try:
-        rows = conn.execute("""
-            SELECT u.id, u.username, u.display_name, u.avatar_url, 
-                   up.bio, up.website, up.location, u.created_at,
-                   COUNT(m.id) as post_count
-            FROM users u
-            LEFT JOIN user_profiles up ON u.id = up.user_id
-            LEFT JOIN messages m ON u.id = m.user_id
-            GROUP BY u.id
-            ORDER BY u.created_at DESC
-        """).fetchall()
+        if query:
+            query = sanitize_text(query, 128)
+            q = f"%{query}%"
+            rows = conn.execute("""
+                SELECT u.id, u.username, u.display_name, u.avatar_url, 
+                       up.bio, up.website, up.location, u.created_at,
+                       COUNT(m.id) as post_count
+                FROM users u
+                LEFT JOIN user_profiles up ON u.id = up.user_id
+                LEFT JOIN messages m ON u.id = m.user_id
+                WHERE u.username LIKE ? OR u.display_name LIKE ?
+                GROUP BY u.id
+                ORDER BY u.created_at DESC
+            """, (q, q)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT u.id, u.username, u.display_name, u.avatar_url, 
+                       up.bio, up.website, up.location, u.created_at,
+                       COUNT(m.id) as post_count
+                FROM users u
+                LEFT JOIN user_profiles up ON u.id = up.user_id
+                LEFT JOIN messages m ON u.id = m.user_id
+                GROUP BY u.id
+                ORDER BY u.created_at DESC
+            """).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
@@ -402,10 +696,365 @@ def get_user(username: str):
         conn.close()
 
 
-@app.put("/users/{username}/profile")
-def update_user_profile(username: str, req: UpdateUserProfileReq):
+@app.get("/users/{username}/messages", response_model=List[MessageOut])
+def list_user_messages(username: str, limit: int = 50, request: Request = None):
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
     conn = get_conn()
     try:
+        uid = get_user_id(conn, username)
+        rows = conn.execute(
+            """
+            SELECT m.id, m.group_id, u.username, u.display_name, u.avatar_url,
+                   m.content, m.image_url, m.created_at
+            FROM messages m
+            JOIN users u ON u.id = m.user_id
+            WHERE m.user_id = ?
+            ORDER BY m.created_at DESC
+            LIMIT ?
+            """,
+            (uid, limit),
+        ).fetchall()
+
+        current = None
+        if request:
+            current = request.cookies.get('session_user')
+
+        messages = []
+        for row in rows:
+            msg = dict(row)
+            like_info = get_message_like_info(conn, msg['id'], current)
+            msg['like_count'] = like_info['like_count']
+            msg['liked_by_current_user'] = like_info['liked_by_user']
+            messages.append(MessageOut(**msg))
+        return messages
+    finally:
+        conn.close()
+
+
+@app.get('/users/{username}/followers')
+def list_followers(username: str, request: Request):
+    check_rate_limit(request, "list_followers", limit=120, window_sec=60)
+    conn = get_conn()
+    try:
+        username = sanitize_text(username, 64) or ""
+        if not username:
+            raise HTTPException(status_code=400, detail="Username required")
+        uid = get_user_id(conn, username)
+        rows = conn.execute('''
+            SELECT u.id, u.username, u.display_name, u.avatar_url, up.bio, f.created_at
+            FROM follows f
+            JOIN users u ON u.id = f.follower_id
+            LEFT JOIN user_profiles up ON u.id = up.user_id
+            WHERE f.followee_id = ?
+            ORDER BY f.created_at DESC
+        ''', (uid,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+@app.get('/users/{username}/following')
+def list_following(username: str, request: Request):
+    check_rate_limit(request, "list_following", limit=120, window_sec=60)
+    conn = get_conn()
+    try:
+        username = sanitize_text(username, 64) or ""
+        if not username:
+            raise HTTPException(status_code=400, detail="Username required")
+        uid = get_user_id(conn, username)
+        rows = conn.execute('''
+            SELECT u.id, u.username, u.display_name, u.avatar_url, up.bio, f.created_at
+            FROM follows f
+            JOIN users u ON u.id = f.followee_id
+            LEFT JOIN user_profiles up ON u.id = up.user_id
+            WHERE f.follower_id = ?
+            ORDER BY f.created_at DESC
+        ''', (uid,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+@app.post('/users/{username}/follow')
+def follow_user(username: str, request: Request):
+    check_rate_limit(request, "follow_user", limit=60, window_sec=60)
+    current = request.cookies.get('session_user')
+    if not current:
+        raise HTTPException(status_code=401, detail='Not authenticated')
+    conn = get_conn()
+    try:
+        username = sanitize_text(username, 64) or ""
+        if not username:
+            raise HTTPException(status_code=400, detail="Username required")
+        follower_id = get_user_id(conn, current)
+        followee_id = get_user_id(conn, username)
+        if follower_id == followee_id:
+            raise HTTPException(status_code=400, detail='Cannot follow yourself')
+        # If already following, no-op
+        row = conn.execute(
+            "SELECT 1 FROM follows WHERE follower_id = ? AND followee_id = ?",
+            (follower_id, followee_id),
+        ).fetchone()
+        if row:
+            return {"ok": True, "status": "already_following"}
+
+        # Create follow request
+        try:
+            conn.execute(
+                "INSERT INTO follow_requests (requester_id, target_id) VALUES (?, ?)",
+                (follower_id, followee_id)
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            pass
+        return {"ok": True, "status": "requested"}
+    finally:
+        conn.close()
+
+
+@app.post('/users/{username}/unfollow')
+def unfollow_user(username: str, request: Request):
+    check_rate_limit(request, "unfollow_user", limit=60, window_sec=60)
+    current = request.cookies.get('session_user')
+    if not current:
+        raise HTTPException(status_code=401, detail='Not authenticated')
+    conn = get_conn()
+    try:
+        username = sanitize_text(username, 64) or ""
+        if not username:
+            raise HTTPException(status_code=400, detail="Username required")
+        follower_id = get_user_id(conn, current)
+        followee_id = get_user_id(conn, username)
+        conn.execute(
+            "DELETE FROM follows WHERE follower_id = ? AND followee_id = ?",
+            (follower_id, followee_id)
+        )
+        conn.execute(
+            "DELETE FROM follow_requests WHERE requester_id = ? AND target_id = ?",
+            (follower_id, followee_id)
+        )
+        conn.commit()
+        return {"ok": True}
+    finally:
+        conn.close()
+
+
+@app.get('/follow/requests/incoming')
+def list_follow_requests_incoming(request: Request):
+    current = get_current_user(request)
+    conn = get_conn()
+    try:
+        uid = get_user_id(conn, current)
+        rows = conn.execute(
+            """
+            SELECT u.id, u.username, u.display_name, u.avatar_url, fr.created_at
+            FROM follow_requests fr
+            JOIN users u ON u.id = fr.requester_id
+            WHERE fr.target_id = ?
+            ORDER BY fr.created_at DESC
+            """,
+            (uid,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+@app.get('/follow/requests/outgoing')
+def list_follow_requests_outgoing(request: Request):
+    current = get_current_user(request)
+    conn = get_conn()
+    try:
+        uid = get_user_id(conn, current)
+        rows = conn.execute(
+            """
+            SELECT u.id, u.username, u.display_name, u.avatar_url, fr.created_at
+            FROM follow_requests fr
+            JOIN users u ON u.id = fr.target_id
+            WHERE fr.requester_id = ?
+            ORDER BY fr.created_at DESC
+            """,
+            (uid,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+@app.post('/follow/requests/{username}/accept')
+def accept_follow_request(username: str, request: Request):
+    current = get_current_user(request)
+    conn = get_conn()
+    try:
+        username = sanitize_text(username, 64) or ""
+        if not username:
+            raise HTTPException(status_code=400, detail="Username required")
+        requester_id = get_user_id(conn, username)
+        target_id = get_user_id(conn, current)
+
+        # ensure request exists
+        row = conn.execute(
+            "SELECT 1 FROM follow_requests WHERE requester_id = ? AND target_id = ?",
+            (requester_id, target_id),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Follow request not found")
+
+        # create follow
+        try:
+            conn.execute(
+                "INSERT INTO follows (follower_id, followee_id) VALUES (?, ?)",
+                (requester_id, target_id)
+            )
+        except sqlite3.IntegrityError:
+            pass
+
+        conn.execute(
+            "DELETE FROM follow_requests WHERE requester_id = ? AND target_id = ?",
+            (requester_id, target_id),
+        )
+        conn.commit()
+        return {"ok": True}
+    finally:
+        conn.close()
+
+
+@app.post('/follow/requests/{username}/decline')
+def decline_follow_request(username: str, request: Request):
+    current = get_current_user(request)
+    conn = get_conn()
+    try:
+        username = sanitize_text(username, 64) or ""
+        if not username:
+            raise HTTPException(status_code=400, detail="Username required")
+        requester_id = get_user_id(conn, username)
+        target_id = get_user_id(conn, current)
+        conn.execute(
+            "DELETE FROM follow_requests WHERE requester_id = ? AND target_id = ?",
+            (requester_id, target_id),
+        )
+        conn.commit()
+        return {"ok": True}
+    finally:
+        conn.close()
+
+
+@app.post('/dm/{username}')
+def create_dm(username: str, request: Request):
+    """Create or fetch a DM group between current user and a mutual follower."""
+    check_rate_limit(request, "create_dm", limit=30, window_sec=60)
+    current = get_current_user(request)
+    conn = get_conn()
+    try:
+        username = sanitize_text(username, 64) or ""
+        if not username:
+            raise HTTPException(status_code=400, detail="Username required")
+        if not is_mutual_follow(conn, current, username):
+            raise HTTPException(status_code=403, detail="Mutual follow required")
+
+        # stable dm group name
+        a, b = sorted([current, username])
+        group_name = f"dm:{a}:{b}"
+
+        row = conn.execute("SELECT id, name, description, created_at FROM groups WHERE name = ?", (group_name,)).fetchone()
+        if not row:
+            conn.execute("INSERT INTO groups (name, description) VALUES (?, ?)", (group_name, "Direct message"))
+            gid = conn.execute("SELECT last_insert_rowid() as id").fetchone()["id"]
+        else:
+            gid = int(row["id"])
+
+        # ensure membership for both
+        a_id = get_user_id(conn, current)
+        b_id = get_user_id(conn, username)
+        for uid in (a_id, b_id):
+            try:
+                conn.execute("INSERT INTO group_members (group_id, user_id) VALUES (?, ?)", (gid, uid))
+            except sqlite3.IntegrityError:
+                pass
+        conn.commit()
+
+        group = conn.execute("SELECT id, name, description, created_at FROM groups WHERE id = ?", (gid,)).fetchone()
+        return dict(group)
+    finally:
+        conn.close()
+
+
+@app.get('/feed', response_model=List[MessageOut])
+def get_feed(
+    following: Optional[int] = 0,
+    limit: int = 50,
+    before: Optional[str] = None,
+    request: Request = None,
+):
+    current = None
+    if request:
+        current = request.cookies.get('session_user')
+    if not current:
+        raise HTTPException(status_code=401, detail='Not authenticated')
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=400, detail='limit must be between 1 and 500')
+
+    conn = get_conn()
+    try:
+        if following:
+            # need current user
+            try:
+                uid = get_user_id(conn, current)
+            except HTTPException:
+                raise HTTPException(status_code=401, detail='Invalid user')
+
+            rows = conn.execute('''
+                SELECT m.id, m.group_id, u.username, u.display_name, u.avatar_url,
+                       m.content, m.image_url, m.created_at
+                FROM messages m
+                JOIN users u ON u.id = m.user_id
+                WHERE m.user_id IN (
+                    SELECT followee_id FROM follows WHERE follower_id = ?
+                )
+                AND (? IS NULL OR m.created_at < ?)
+                ORDER BY m.created_at DESC
+                LIMIT ?
+            ''', (uid, before, before, limit)).fetchall()
+        else:
+            # default: global group messages
+            try:
+                gid = get_group_id(conn, 'global')
+            except HTTPException:
+                return []
+            rows = conn.execute('''
+                SELECT m.id, m.group_id, u.username, u.display_name, u.avatar_url,
+                       m.content, m.image_url, m.created_at
+                FROM messages m
+                JOIN users u ON u.id = m.user_id
+                WHERE m.group_id = ?
+                AND (? IS NULL OR m.created_at < ?)
+                ORDER BY m.created_at DESC
+                LIMIT ?
+            ''', (gid, before, before, limit)).fetchall()
+
+        messages = []
+        for row in rows:
+            msg = dict(row)
+            like_info = get_message_like_info(conn, msg['id'], current)
+            msg['like_count'] = like_info['like_count']
+            msg['liked_by_current_user'] = like_info['liked_by_user']
+            messages.append(MessageOut(**msg))
+        return messages
+    finally:
+        conn.close()
+
+
+@app.put("/users/{username}/profile")
+def update_user_profile(username: str, req: UpdateUserProfileReq, request: Request):
+    check_rate_limit(request, "update_profile", limit=30, window_sec=60)
+    conn = get_conn()
+    try:
+        req.display_name = sanitize_text(req.display_name, 128)
+        req.bio = sanitize_text(req.bio, 500)
+        req.website = sanitize_text(req.website, 256)
+        req.location = sanitize_text(req.location, 128)
+        req.avatar_url = sanitize_text(req.avatar_url, 512)
         user_id = get_user_id(conn, username)
         
         # Update user table
@@ -466,10 +1115,16 @@ def update_user_profile(username: str, req: UpdateUserProfileReq):
 
 
 @app.post("/groups")
-def create_group(req: CreateGroupReq):
+def create_group(req: CreateGroupReq, request: Request):
+    check_rate_limit(request, "create_group", limit=20, window_sec=60)
+    current = get_current_user(request)
     conn = get_conn()
     try:
         try:
+            req.name = sanitize_text(req.name, 128) or ""
+            req.description = sanitize_text(req.description, 500)
+            if not req.name:
+                raise HTTPException(status_code=400, detail="Group name required")
             conn.execute(
                 "INSERT INTO groups (name, description) VALUES (?, ?)",
                 (req.name, req.description)
@@ -478,34 +1133,100 @@ def create_group(req: CreateGroupReq):
         except sqlite3.IntegrityError:
             raise HTTPException(status_code=409, detail="Group name already exists")
         row = conn.execute("SELECT id, name, description, created_at FROM groups WHERE name = ?", (req.name,)).fetchone()
+        # add creator as member
+        try:
+            gid = int(row["id"])
+            uid = get_user_id(conn, current)
+            conn.execute("INSERT INTO group_members (group_id, user_id) VALUES (?, ?)", (gid, uid))
+            conn.commit()
+        except Exception:
+            pass
         return dict(row)
     finally:
         conn.close()
 
 
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...), request: Request = None):
+    check_rate_limit(request, "upload", limit=30, window_sec=60)
+    if not file or not file.filename:
+        raise HTTPException(status_code=400, detail="File required")
+
+    allowed_types = {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/gif": ".gif",
+        "image/webp": ".webp",
+    }
+    content_type = (file.content_type or "").lower()
+    ext = allowed_types.get(content_type)
+    if not ext:
+        # fallback to filename extension if content_type is missing
+        _, raw_ext = os.path.splitext(file.filename)
+        raw_ext = raw_ext.lower()
+        if raw_ext in [".jpg", ".jpeg", ".png", ".gif", ".webp"]:
+            ext = ".jpg" if raw_ext == ".jpeg" else raw_ext
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported file type")
+
+    data = await file.read()
+    max_bytes = 5 * 1024 * 1024
+    if len(data) > max_bytes:
+        raise HTTPException(status_code=400, detail="File too large (max 5MB)")
+
+    filename = f"{uuid.uuid4().hex}{ext}"
+    dest_path = os.path.join(UPLOAD_DIR, filename)
+    with open(dest_path, "wb") as f:
+        f.write(data)
+
+    return {"url": f"/uploads/{filename}"}
+
+
 @app.get("/groups")
-def list_groups():
+def list_groups(request: Request):
+    current = get_current_user(request)
     conn = get_conn()
     try:
+        uid = get_user_id(conn, current)
         rows = conn.execute("""
             SELECT g.id, g.name, g.description, g.created_at,
-                   COUNT(gm.user_id) as member_count
+                   COUNT(gm2.user_id) as member_count
             FROM groups g
-            LEFT JOIN group_members gm ON g.id = gm.group_id
+            JOIN group_members gm ON g.id = gm.group_id
+            LEFT JOIN group_members gm2 ON g.id = gm2.group_id
+            WHERE gm.user_id = ?
             GROUP BY g.id
             ORDER BY g.created_at DESC
-        """).fetchall()
+        """, (uid,)).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
 
 
 @app.post("/groups/{group_name}/members")
-def add_member(group_name: str, req: AddMemberReq):
+def add_member(group_name: str, req: AddMemberReq, request: Request):
+    check_rate_limit(request, "add_member", limit=60, window_sec=60)
+    current = get_current_user(request)
     conn = get_conn()
     try:
+        group_name = sanitize_text(group_name, 128) or ""
+        req.username = sanitize_text(req.username, 64) or ""
+        req.role = sanitize_text(req.role, 32) or "member"
+        if not group_name or not req.username:
+            raise HTTPException(status_code=400, detail="Group and username required")
         gid = get_group_id(conn, group_name)
+        inviter_id = get_user_id(conn, current)
         uid = get_user_id(conn, req.username)
+        # inviter must be a group member
+        mem = conn.execute(
+            "SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?",
+            (gid, inviter_id),
+        ).fetchone()
+        if not mem:
+            raise HTTPException(status_code=403, detail="Inviter is not a member of this group")
+        # inviter and invitee must be mutual followers
+        if not is_mutual_follow(conn, current, req.username):
+            raise HTTPException(status_code=403, detail="Can only invite mutual followers")
         try:
             conn.execute(
                 "INSERT INTO group_members (group_id, user_id, role) VALUES (?, ?, ?)",
@@ -530,23 +1251,78 @@ def add_member(group_name: str, req: AddMemberReq):
         conn.close()
 
 
-@app.post("/groups/{group_name}/messages")
-def send_message(group_name: str, req: SendMessageReq):
-    if (req.content is None or req.content.strip() == "") and (req.image_url is None or req.image_url.strip() == ""):
-        raise HTTPException(status_code=400, detail="Either content or image_url must be provided")
-
+@app.get("/groups/{group_name}/members")
+def list_group_members(group_name: str, request: Request):
+    current = get_current_user(request)
     conn = get_conn()
     try:
+        group_name = sanitize_text(group_name, 128) or ""
+        if not group_name:
+            raise HTTPException(status_code=400, detail="Group name required")
         gid = get_group_id(conn, group_name)
-        uid = get_user_id(conn, req.username)
-
-        # ensure membership
+        uid = get_user_id(conn, current)
         mem = conn.execute(
             "SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?",
             (gid, uid),
         ).fetchone()
         if not mem:
-            raise HTTPException(status_code=403, detail="User is not a member of this group")
+            raise HTTPException(status_code=403, detail="Not a group member")
+
+        rows = conn.execute(
+            """
+            SELECT u.id, u.username, u.display_name, u.avatar_url, gm.role, gm.joined_at
+            FROM group_members gm
+            JOIN users u ON u.id = gm.user_id
+            WHERE gm.group_id = ?
+            ORDER BY gm.joined_at ASC
+            """,
+            (gid,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+@app.post("/groups/{group_name}/messages")
+def send_message(group_name: str, req: SendMessageReq, request: Request):
+    check_rate_limit(request, "send_message", limit=120, window_sec=60)
+    current = get_current_user(request)
+    group_name = sanitize_text(group_name, 128) or ""
+    req.username = sanitize_text(req.username, 64) or ""
+    req.content = sanitize_text(req.content, 2000)
+    req.image_url = sanitize_text(req.image_url, 1024)
+    if not group_name or not req.username:
+        raise HTTPException(status_code=400, detail="Group and username required")
+    if req.username != current:
+        raise HTTPException(status_code=403, detail="Username does not match session")
+    if (req.content is None or req.content.strip() == "") and (req.image_url is None or req.image_url.strip() == ""):
+        raise HTTPException(status_code=400, detail="Either content or image_url must be provided")
+
+    conn = get_conn()
+    try:
+        # Ensure group exists (create if missing)
+        try:
+            gid = get_group_id(conn, group_name)
+            group_exists = True
+        except HTTPException:
+            conn.execute("INSERT INTO groups (name, description) VALUES (?, ?)", (group_name, None))
+            gid = conn.execute("SELECT last_insert_rowid() as id").fetchone()["id"]
+            group_exists = False
+
+        uid = get_user_id(conn, req.username)
+
+        # ensure membership; only auto-add if group newly created
+        mem = conn.execute(
+            "SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?",
+            (gid, uid),
+        ).fetchone()
+        if not mem:
+            if group_exists:
+                raise HTTPException(status_code=403, detail="Not a group member")
+            try:
+                conn.execute("INSERT INTO group_members (group_id, user_id) VALUES (?, ?)", (gid, uid))
+            except sqlite3.IntegrityError:
+                pass
 
         conn.execute(
             "INSERT INTO messages (group_id, user_id, content, image_url) VALUES (?, ?, ?, ?)",
@@ -581,13 +1357,26 @@ def get_messages(
     before: Optional[str] = None,  # ISO-like text, e.g. "2026-01-18 12:00:00"
     after: Optional[str] = None,
     username: Optional[str] = None,  # Optional: filter by specific user and check likes
+    request: Request = None,
 ):
     if limit < 1 or limit > 500:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
 
+    # must be authenticated and a member of the group
+    if not request:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    current = get_current_user(request)
+
     conn = get_conn()
     try:
         gid = get_group_id(conn, group_name)
+        uid = get_user_id(conn, current)
+        mem = conn.execute(
+            "SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?",
+            (gid, uid),
+        ).fetchone()
+        if not mem:
+            raise HTTPException(status_code=403, detail="Not a group member")
 
         where = ["m.group_id = ?"]
         params = [gid]
@@ -629,9 +1418,13 @@ def get_messages(
 
 
 @app.post("/messages/{message_id}/like")
-def like_message(message_id: int, req: LikeMessageReq):
+def like_message(message_id: int, req: LikeMessageReq, request: Request):
+    check_rate_limit(request, "like_message", limit=200, window_sec=60)
     conn = get_conn()
     try:
+        req.username = sanitize_text(req.username, 64) or ""
+        if not req.username:
+            raise HTTPException(status_code=400, detail="Username required")
         uid = get_user_id(conn, req.username)
         
         # Check if message exists
@@ -711,6 +1504,172 @@ def get_message_likes(message_id: int):
         return [dict(r) for r in rows]
     finally:
         conn.close()
+
+
+@app.post('/messages/{message_id}/comments')
+def add_comment(message_id: int, req: SendMessageReq, request: Request):
+    check_rate_limit(request, "add_comment", limit=120, window_sec=60)
+    # reuse SendMessageReq fields: username + content
+    current = get_current_user(request)
+    req.username = sanitize_text(req.username, 64) or ""
+    req.content = sanitize_text(req.content, 2000)
+    if not req.username:
+        raise HTTPException(status_code=400, detail="Username required")
+    if req.username != current:
+        raise HTTPException(status_code=403, detail="Username does not match session")
+    if not req.content or req.content.strip() == "":
+        raise HTTPException(status_code=400, detail='Comment content required')
+    conn = get_conn()
+    try:
+        # check message exists
+        msg = conn.execute('SELECT id FROM messages WHERE id = ?', (message_id,)).fetchone()
+        if not msg:
+            raise HTTPException(status_code=404, detail='Message not found')
+        uid = get_user_id(conn, req.username)
+        conn.execute('INSERT INTO comments (message_id, user_id, content) VALUES (?, ?, ?)', (message_id, uid, req.content))
+        conn.commit()
+        row = conn.execute('''
+            SELECT c.id, c.message_id, u.username, u.display_name, u.avatar_url, c.content, c.created_at
+            FROM comments c JOIN users u ON u.id = c.user_id
+            WHERE c.rowid = last_insert_rowid()
+        ''').fetchone()
+        return dict(row)
+    finally:
+        conn.close()
+
+
+@app.get('/messages/{message_id}/comments')
+def list_comments(message_id: int, limit: int = 100, before: Optional[str] = None, request: Request = None):
+    # require auth to view comments
+    if not request:
+        raise HTTPException(status_code=401, detail='Not authenticated')
+    get_current_user(request)
+    conn = get_conn()
+    try:
+        rows = conn.execute('''
+            SELECT c.id, c.message_id, u.username, u.display_name, u.avatar_url, c.content, c.created_at
+            FROM comments c JOIN users u ON u.id = c.user_id
+            WHERE c.message_id = ?
+            AND (? IS NULL OR c.created_at < ?)
+            ORDER BY c.created_at ASC
+            LIMIT ?
+        ''', (message_id, before, before, limit)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+@app.delete('/comments/{comment_id}')
+def delete_comment(comment_id: int, request: Request):
+    check_rate_limit(request, "delete_comment", limit=60, window_sec=60)
+    current = request.cookies.get('session_user')
+    if not current:
+        raise HTTPException(status_code=401, detail='Not authenticated')
+    conn = get_conn()
+    try:
+        row = conn.execute('SELECT id, user_id FROM comments WHERE id = ?', (comment_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail='Comment not found')
+        author_id = int(row['user_id'])
+        current_id = get_user_id(conn, current)
+        if current_id != author_id:
+            raise HTTPException(status_code=403, detail='Not allowed')
+        conn.execute('DELETE FROM comments WHERE id = ?', (comment_id,))
+        conn.commit()
+        return {'ok': True}
+    finally:
+        conn.close()
+
+
+# Simple in-memory room -> set(WebSocket) registry for broadcasting
+ROOMS: Dict[str, List[WebSocket]] = {}
+
+
+@app.websocket('/ws')
+async def websocket_endpoint(websocket: WebSocket):
+    # Expect query param 'room'
+    await websocket.accept()
+    room = websocket.query_params.get('room') or 'global'
+    # require auth and membership
+    current = websocket.cookies.get('session_user')
+    if not current:
+        await websocket.close(code=1008)
+        return
+    conn = get_conn()
+    try:
+        try:
+            gid = get_group_id(conn, room)
+            uid = get_user_id(conn, current)
+            mem = conn.execute(
+                "SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?",
+                (gid, uid),
+            ).fetchone()
+            if not mem:
+                await websocket.close(code=1008)
+                return
+        except HTTPException:
+            await websocket.close(code=1008)
+            return
+    finally:
+        conn.close()
+    ROOMS.setdefault(room, [])
+    ROOMS[room].append(websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            # Try to parse JSON, but accept plain text
+            try:
+                import json
+                payload = json.loads(data)
+            except Exception:
+                payload = {'type': 'message', 'content': data}
+
+            # Attach sender info from cookie if available
+            sender = websocket.cookies.get('session_user') or payload.get('username') or 'anon'
+
+            # Persist to DB if it's a message
+            if payload.get('type') == 'message':
+                conn = get_conn()
+                try:
+                    # Ensure group exists
+                    group_name = room
+                    row = conn.execute('SELECT id FROM groups WHERE name = ?', (group_name,)).fetchone()
+                    if row:
+                        gid = int(row['id'])
+                    else:
+                        conn.execute('INSERT INTO groups (name, description) VALUES (?, ?)', (group_name, None))
+                        gid = conn.execute('SELECT last_insert_rowid() as id').fetchone()['id']
+                    # Ensure user exists and is a member
+                    try:
+                        uid = get_user_id(conn, sender)
+                    except HTTPException:
+                        uid = None
+                    if uid:
+                        # Add membership if missing
+                        mem = conn.execute('SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?', (gid, uid)).fetchone()
+                        if not mem:
+                            try:
+                                conn.execute('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)', (gid, uid))
+                            except sqlite3.IntegrityError:
+                                pass
+                        conn.execute('INSERT INTO messages (group_id, user_id, content) VALUES (?, ?, ?)', (gid, uid, payload.get('content')))
+                        conn.commit()
+                finally:
+                    conn.close()
+
+            # Broadcast to room
+            to_remove = []
+            for ws in list(ROOMS.get(room, [])):
+                try:
+                    await ws.send_text(json.dumps({**(payload if isinstance(payload, dict) else {}), 'user': sender}))
+                except Exception:
+                    to_remove.append(ws)
+            for ws in to_remove:
+                if ws in ROOMS.get(room, []):
+                    ROOMS[room].remove(ws)
+    except WebSocketDisconnect:
+        if websocket in ROOMS.get(room, []):
+            ROOMS[room].remove(websocket)
 
 
 # =========================================================

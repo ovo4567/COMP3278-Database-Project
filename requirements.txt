@@ -1,3 +1,5 @@
 fastapi
 uvicorn
 vanna[anthropic,fastapi,openai]
+passlib[bcrypt]
+python-multipart

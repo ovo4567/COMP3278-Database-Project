@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root { height: 100%; }
+
+@layer base {
+	body { @apply text-[#262626] antialiased bg-[#fafafa]; }
+	h1, h2, h3, h4 { @apply text-[#262626]; }
+}
+
+@layer components {
+	.card { @apply bg-white border border-[#dbdbdb] rounded-xl; }
+	.card-hover { @apply transition hover:shadow-sm; }
+	.btn { @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium transition; }
+	.btn-primary { @apply btn bg-[#0095f6] text-white hover:bg-[#1877f2]; }
+	.btn-secondary { @apply btn bg-[#efefef] text-[#262626] hover:bg-[#e4e4e4]; }
+	.btn-ghost { @apply btn bg-white text-[#262626] hover:bg-[#fafafa] border border-[#dbdbdb]; }
+	.btn-danger { @apply btn bg-[#ffebe9] text-[#ed4956] hover:bg-[#ffd8d5]; }
+	.input { @apply w-full px-3 py-2 rounded-lg border border-[#dbdbdb] bg-white focus:outline-none focus:ring-2 focus:ring-[#cce7ff]; }
+	.textarea { @apply w-full px-3 py-2 rounded-lg border border-[#dbdbdb] bg-white focus:outline-none focus:ring-2 focus:ring-[#cce7ff]; }
+	.badge { @apply inline-flex items-center px-2 py-1 text-xs rounded-full bg-[#efefef] text-[#262626]; }
+	.empty { @apply text-center text-sm text-gray-500 bg-white border border-dashed border-[#dbdbdb] rounded-xl p-6; }
+}

@@ -1,5 +1,69 @@
 <h1 align="center">HKU Comp 3278'26</h1>
 
+## Project App (Social Media Demo)
+
+This folder contains a FastAPI backend and a React (Vite) frontend.
+
+This is a lightweight local project—no Docker or cloud setup required.
+
+## Features Implemented (Instagram-style)
+
+- Profile-centric navigation (no main feed)
+- Create post (image upload or image URL + caption) → redirects to your profile
+- Profile pages with avatar, bio, counts, and image grid
+- Post detail modal with likes and comments
+- Follow requests (accept/decline), mutual-follow badges
+- Direct messages only between mutual followers
+- Group chat with member invites (mutual followers only)
+- Explore page with popular posts and suggested users
+- Activity page placeholder
+- Session auth with HttpOnly cookie
+- Rate limiting and input sanitization
+
+## Usage Logic
+
+**Create** → Post goes to your profile and shows at the top of your grid.
+
+**Discover** → Use Explore to find posts/users → click any username to view their profile.
+
+**Profile** → View image grid → click a post thumbnail to open the detail modal.
+
+**Follow** → Follow requests must be accepted. Mutual follow required to message.
+
+**Message** → Only available with mutual followers. Group invites restricted to mutuals.
+
+### Quick start (backend)
+
+```bash
+pip install -r requirements.txt
+python3 "chat_app_ct.py"
+```
+
+The API will run at http://localhost:8000.
+
+### Quick start (frontend)
+
+```bash
+cd "frontend"
+npm install
+npm run dev
+```
+
+The UI will run at http://localhost:5173.
+
+### Smoke test (optional)
+
+```bash
+python3 "tests/smoke_test.py"
+```
+
+### Notes
+
+- Image uploads accept jpg/png/gif/webp up to 5MB and are stored under the local uploads/ folder.
+- Session auth uses an HttpOnly cookie named session_user.
+
+---
+
 > Here is a tutorial for your group project. For this demo, we use Vanna with Deepseek for Text-to-SQL Generation, ChatGPT for UI vibe coding. The tutorial slides can be found in this [link](./Group_Project.pdf).
 
 ## 1. Install git locally

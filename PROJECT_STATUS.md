@@ -119,6 +119,23 @@ Core design: **profile-centric navigation**. No main feed; discovery happens thr
 4) **Follow requests** — must accept/decline.
 5) **Group membership enforced** — all chat visibility is members-only.
 
+
+## Recent Changes (2026-02-06)
+
+- **Conversations abstraction added:** new DB tables `conversations` and `conversation_participants` to support DM and group threads uniformly.
+- **Migration script:** `migrate_to_conversations.py` creates conversation rows for existing groups, migrates `group_members` -> `conversation_participants`, and updates messages to reference `conversation_id` where possible. A backup of the DB is created during migration.
+- **Demo data updated:** `add_demo_data.py` now inserts conversation-backed demo content (group messages + DM conversations, comments, likes).
+- **Backend endpoints added/updated:**
+  - `GET /conversations` — list conversations for current user
+  - `GET /conversations/{id}/messages` — list messages in a conversation (permission enforced)
+  - `GET /conversations/{id}/participants` — list conversation participants
+  - `POST /dm/{username}` — now creates/returns a DM `conversation` and links it to the created group entry (if any)
+  - Existing group message endpoints and WebSocket persistence were updated to insert `conversation_id` when available and to enforce `conversation_participants` checks for likes/comments where applicable.
+- **WebSocket:** `/ws?room=` now accepts `conversation:{id}` rooms; connections are validated against `conversation_participants`. Legacy `group` room names are still supported.
+- **Frontend changes:** `frontend/src/pages/Messages.jsx`, `ChatRoom.jsx`, `Profile.jsx`, and `Friends.jsx` were updated to use the new conversation endpoints and to route DM opens to `conv:{id}` rooms (which map to `conversation:{id}` for websockets).
+- **Branch & commits:** Changes are committed on branch `feature/profile-centric-instagram` and pushed to remotes. 
+- **Next manual step:** run the migration (if not already run) then seed demo data; frontend requires running `npm run dev` and backend `uvicorn chat_app_ct:app` (see below).
+
 ---
 
 ## How to Run

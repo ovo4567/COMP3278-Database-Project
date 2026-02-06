@@ -1,7 +1,9 @@
 import React, {useEffect, useState} from 'react'
 import api from '../lib/api'
+import { useSearchParams } from 'react-router-dom'
 
 export default function Friends(){
+  const [params, setParams] = useSearchParams()
   const [query,setQuery]=useState('')
   const [results,setResults]=useState([])
   const [current,setCurrent]=useState('')
@@ -44,9 +46,21 @@ export default function Friends(){
     return ()=>{ ignore = true }
   },[])
 
+  useEffect(()=>{
+    const q = (params.get('q') || '').trim()
+    if(!q) return
+    setQuery(q)
+    // auto-run when navigated here from global search
+    api.get(`/users?query=${encodeURIComponent(q)}`)
+      .then((res)=> setResults(res || []))
+      .catch(()=> setResults([]))
+  },[params])
+
   async function search(){
     try{
-      const res = await api.get(`/users?query=${encodeURIComponent(query)}`)
+      const q = query.trim()
+      setParams(q ? { q } : {})
+      const res = await api.get(`/users?query=${encodeURIComponent(q)}`)
       setResults(res || [])
     }catch(e){ console.error(e) }
   }
@@ -77,7 +91,12 @@ export default function Friends(){
   async function startChat(username){
     try{
       const group = await api.post(`/dm/${username}`)
-      window.location.href = `/rooms/${encodeURIComponent(group.name)}`
+      const convId = group?.conversation?.id
+      if(convId){
+        window.location.href = `/rooms/${encodeURIComponent(`conv:${convId}`)}`
+      }else{
+        window.location.href = `/rooms/${encodeURIComponent(group.name)}`
+      }
     }catch(e){
       console.error(e)
       alert('Mutual follow required to start a chat')
@@ -103,7 +122,7 @@ export default function Friends(){
     <div>
       <div className="card p-4 mb-4">
         <h1 className="text-2xl font-semibold">Friends</h1>
-        <p className="text-sm text-gray-600">Search and follow people.</p>
+        <p className="text-sm text-slate-300">Search and follow people.</p>
       </div>
       {current && incoming.length > 0 && (
         <div className="card p-4 mb-4">
@@ -122,7 +141,19 @@ export default function Friends(){
         </div>
       )}
       <div className="card p-4 mb-4 flex gap-2">
-        <input value={query} onChange={e=>setQuery(e.target.value)} className="input flex-1" placeholder="Search users" />
+        <input
+          value={query}
+          onChange={e=>setQuery(e.target.value)}
+          className="input flex-1"
+          placeholder="Search users"
+          aria-label="Search users"
+          onKeyDown={(e)=>{
+            if(e.key === 'Enter'){
+              e.preventDefault()
+              search()
+            }
+          }}
+        />
         <button onClick={search} className="btn-primary">Search</button>
       </div>
       <div className="space-y-3">
@@ -131,7 +162,7 @@ export default function Friends(){
           <div key={u.username} className="card p-3 card-hover flex items-center justify-between">
             <div>
               <a className="font-medium" href={`/users/${u.username}`}>{u.display_name||u.username}</a>
-              <div className="text-xs text-gray-500">@{u.username}</div>
+              <div className="text-xs text-slate-400">@{u.username}</div>
               {followers.has(u.username) && following.has(u.username) && (
                 <div className="mt-1"><span className="badge">Mutual</span></div>
               )}

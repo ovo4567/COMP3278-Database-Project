@@ -42,7 +42,8 @@ python3 "tests/smoke_test.py"
 
 ## Features Implemented
 
-- Profile-centric navigation (no main feed)
+- Cinematic UI (glassmorphism, neon accents, smooth page + modal transitions)
+- Profile-centric navigation (Explore is the home view)
 - Create post (image upload or image URL + caption) → redirects to your profile
 - Profile pages with avatar, bio, counts, and image grid
 - Post detail modal with likes and comments
@@ -53,6 +54,7 @@ python3 "tests/smoke_test.py"
 - Activity page placeholder
 - Session auth with HttpOnly cookie
 - Rate limiting and input sanitization
+- Skeleton loading states and micro‑interactions
 
 ## How to Use (Quick Tour)
 
@@ -61,6 +63,45 @@ python3 "tests/smoke_test.py"
 - **Profile**: View user info, followers/following counts, and a grid of posts. Click any thumbnail to open the post detail modal.
 - **Follow**: Follow requests must be accepted. Mutual follow is required to message.
 - **Message**: Start a DM from a mutual follower’s profile or from search results.
+
+## Backend Structure (FastAPI)
+
+Single service file: `chat_app_ct.py`
+
+### Layers
+- **DB init + migrations**: creates SQLite schema and backfills missing columns on startup.
+- **REST endpoints**: auth, users, follows, feed, posts, comments, likes, groups, conversations.
+- **WebSockets**: `/ws?room=` supports `conversation:{id}` (preferred) and legacy group rooms.
+- **Uploads**: stored under `uploads/` and served at `/uploads/{filename}`.
+
+### Key Endpoints
+- **Auth**: `POST /auth/register`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`
+- **Users**: `GET /users`, `GET /users/{username}`, `PUT /users/{username}/profile`
+- **Posts**: `POST /groups/{group}/messages`, `GET /groups/{group}/messages`, `GET /feed`
+- **Likes/Comments**: `POST /messages/{id}/like`, `GET/POST /messages/{id}/comments`, `DELETE /comments/{id}`
+- **Follows**: `/users/{username}/follow`, `/users/{username}/unfollow`, request accept/decline
+- **Conversations**: `GET /conversations`, `GET /conversations/{id}/messages`, `GET /conversations/{id}/participants`
+- **Uploads**: `POST /upload`
+
+## Database Structure (SQLite)
+
+Core tables (simplified):
+
+- **users**: `id`, `username`, `display_name`, `avatar_url`, `password_hash`, `created_at`
+- **user_profiles**: `user_id`, `bio`, `website`, `location`
+- **groups**: `id`, `name`, `description`, `conversation_id`, `created_at`
+- **group_members**: `group_id`, `user_id`, `role`, `joined_at`
+- **messages**: `id`, `group_id`, `conversation_id`, `user_id`, `content`, `image_url`, `created_at`
+- **conversations**: `id`, `type` (`dm`/`group`), `title`, `metadata`, `created_at`, `last_activity_at`
+- **conversation_participants**: `conversation_id`, `user_id`, `role`, `last_read_at`
+- **message_likes**: `message_id`, `user_id`, `created_at`
+- **comments**: `message_id`, `user_id`, `content`, `created_at`
+- **follows**: `follower_id`, `followee_id`, `created_at`
+- **follow_requests**: `requester_id`, `target_id`, `created_at`
+
+Notes:
+- DMs and group chats are unified via the **conversations** abstraction.
+- Uploaded images are stored locally and returned as absolute URLs for the frontend.
 
 ## Notes
 

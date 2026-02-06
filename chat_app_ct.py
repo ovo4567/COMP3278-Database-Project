@@ -13,10 +13,21 @@ Features (core):
 Run:
   pip install fastapi uvicorn vanna
   export DEEPSEEK_API_KEY="your_key"
-  python app.py
-
-Then:
-  - REST docs: http://127.0.0.1:8000/docs
+        try:
+            conn.execute("INSERT INTO group_members (group_id, user_id) VALUES (?, ?)", (gid, user_id))
+        except sqlite3.IntegrityError:
+            pass
+        # Also ensure a conversation exists for this group and add participant
+        row_conv = conn.execute("SELECT conversation_id FROM groups WHERE id = ?", (gid,)).fetchone()
+        conv_id = row_conv['conversation_id'] if row_conv and row_conv['conversation_id'] else None
+        if not conv_id:
+            conn.execute("INSERT INTO conversations (type, title) VALUES ('group', ?)", ('global',))
+            conv_id = conn.execute("SELECT last_insert_rowid() as id").fetchone()['id']
+            conn.execute("UPDATE groups SET conversation_id = ? WHERE id = ?", (conv_id, gid))
+        try:
+            conn.execute("INSERT OR IGNORE INTO conversation_participants (conversation_id, user_id, role) VALUES (?, ?, 'member')", (conv_id, user_id))
+        except sqlite3.IntegrityError:
+            pass
   - Vanna endpoints are mounted under /vanna (same server)
 """
 
@@ -28,6 +39,7 @@ import uuid
 import sqlite3
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+from urllib.parse import urljoin
 
 from fastapi import FastAPI, HTTPException, Request, Response, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
@@ -86,6 +98,17 @@ def sanitize_text(value: Optional[str], max_len: Optional[int] = None) -> Option
     return cleaned
 
 
+def absolutize_image_url(image_url: Optional[str], request: Optional[Request]) -> Optional[str]:
+    if not image_url:
+        return image_url
+    if image_url.startswith("http://") or image_url.startswith("https://") or image_url.startswith("data:"):
+        return image_url
+    if image_url.startswith("/") and request is not None:
+        base = str(request.base_url).rstrip("/")
+        return f"{base}{image_url}"
+    return image_url
+
+
 def get_current_user(request: Request) -> str:
     current = request.cookies.get('session_user')
     if not current:
@@ -126,6 +149,7 @@ CREATE TABLE IF NOT EXISTS groups (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL UNIQUE,
   description TEXT,
+    conversation_id INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -142,12 +166,14 @@ CREATE TABLE IF NOT EXISTS group_members (
 CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   group_id INTEGER NOT NULL,
+    conversation_id INTEGER,
   user_id INTEGER NOT NULL,
   content TEXT,            -- nullable if only image_url
   image_url TEXT,          -- optional
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 );
 
 -- Add likes table for post likes
@@ -171,6 +197,7 @@ CREATE TABLE IF NOT EXISTS user_profiles (
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_group_time ON messages(group_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_messages_conversation_time ON messages(conversation_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_user_time ON messages(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_message_likes_message ON message_likes(message_id);
 CREATE INDEX IF NOT EXISTS idx_message_likes_user ON message_likes(user_id);
@@ -265,7 +292,8 @@ class LikeMessageReq(BaseModel):
 
 class MessageOut(BaseModel):
     id: int
-    group_id: int
+    group_id: Optional[int]
+    conversation_id: Optional[int] = None
     username: str
     display_name: Optional[str]
     avatar_url: Optional[str]
@@ -370,6 +398,23 @@ try:
     if 'password_hash' not in cols:
         conn.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
         conn.commit()
+finally:
+    conn.close()
+
+# Ensure groups/messages have conversation_id columns
+conn = sqlite3.connect(DB_PATH)
+try:
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(groups)").fetchall()]
+    if 'conversation_id' not in cols:
+        conn.execute("ALTER TABLE groups ADD COLUMN conversation_id INTEGER")
+        conn.commit()
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(messages)").fetchall()]
+    if 'conversation_id' not in cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN conversation_id INTEGER")
+        conn.commit()
+    # add index if missing
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_conversation_time ON messages(conversation_id, created_at)")
+    conn.commit()
 finally:
     conn.close()
 
@@ -728,8 +773,8 @@ def list_user_messages(username: str, limit: int = 50, request: Request = None):
         uid = get_user_id(conn, username)
         rows = conn.execute(
             """
-            SELECT m.id, m.group_id, u.username, u.display_name, u.avatar_url,
-                   m.content, m.image_url, m.created_at
+                 SELECT m.id, m.group_id, m.conversation_id, u.username, u.display_name, u.avatar_url,
+                     m.content, m.image_url, m.created_at
             FROM messages m
             JOIN users u ON u.id = m.user_id
             WHERE m.user_id = ?
@@ -746,6 +791,7 @@ def list_user_messages(username: str, limit: int = 50, request: Request = None):
         messages = []
         for row in rows:
             msg = dict(row)
+            msg['image_url'] = absolutize_image_url(msg.get('image_url'), request)
             like_info = get_message_like_info(conn, msg['id'], current)
             msg['like_count'] = like_info['like_count']
             msg['liked_by_current_user'] = like_info['liked_by_user']
@@ -997,8 +1043,37 @@ def create_dm(username: str, request: Request):
                 pass
         conn.commit()
 
+        # Ensure a conversation exists for this DM and attach metadata
+        a, b = sorted([current, username])
+        metadata = f"dm:{a}:{b}"
+        conv_row = conn.execute("SELECT id FROM conversations WHERE type = 'dm' AND metadata = ?", (metadata,)).fetchone()
+        if not conv_row:
+            title = f"DM: {a} / {b}"
+            conn.execute("INSERT INTO conversations (type, title, metadata) VALUES ('dm', ?, ?)", (title, metadata))
+            conv_id = conn.execute("SELECT last_insert_rowid() as id").fetchone()['id']
+        else:
+            conv_id = conv_row['id']
+
+        # Link group -> conversation for convenience
+        try:
+            conn.execute('UPDATE groups SET conversation_id = ? WHERE id = ?', (conv_id, gid))
+        except Exception:
+            pass
+
+        # Ensure both are participants
+        try:
+            a_id = get_user_id(conn, current)
+            b_id = get_user_id(conn, username)
+            conn.execute('INSERT OR IGNORE INTO conversation_participants (conversation_id, user_id, role) VALUES (?, ?, ?)', (conv_id, a_id, 'member'))
+            conn.execute('INSERT OR IGNORE INTO conversation_participants (conversation_id, user_id, role) VALUES (?, ?, ?)', (conv_id, b_id, 'member'))
+        except Exception:
+            pass
+
         group = conn.execute("SELECT id, name, description, created_at FROM groups WHERE id = ?", (gid,)).fetchone()
-        return dict(group)
+        conv = conn.execute("SELECT id, type, title, metadata, created_at, last_activity_at FROM conversations WHERE id = ?", (conv_id,)).fetchone()
+        out = dict(group)
+        out['conversation'] = dict(conv) if conv else None
+        return out
     finally:
         conn.close()
 
@@ -1059,6 +1134,7 @@ def get_feed(
         messages = []
         for row in rows:
             msg = dict(row)
+            msg['image_url'] = absolutize_image_url(msg.get('image_url'), request)
             like_info = get_message_like_info(conn, msg['id'], current)
             msg['like_count'] = like_info['like_count']
             msg['liked_by_current_user'] = like_info['liked_by_user']
@@ -1161,6 +1237,14 @@ def create_group(req: CreateGroupReq, request: Request):
             gid = int(row["id"])
             uid = get_user_id(conn, current)
             conn.execute("INSERT INTO group_members (group_id, user_id) VALUES (?, ?)", (gid, uid))
+            # ensure conversation exists and add participant
+            row_conv = conn.execute("SELECT conversation_id FROM groups WHERE id = ?", (gid,)).fetchone()
+            conv_id = row_conv['conversation_id'] if row_conv and row_conv['conversation_id'] else None
+            if not conv_id:
+                conn.execute("INSERT INTO conversations (type, title) VALUES ('group', ?)", (req.name,))
+                conv_id = conn.execute("SELECT last_insert_rowid() as id").fetchone()['id']
+                conn.execute("UPDATE groups SET conversation_id = ? WHERE id = ?", (conv_id, gid))
+            conn.execute("INSERT OR IGNORE INTO conversation_participants (conversation_id, user_id, role) VALUES (?, ?, 'member')", (conv_id, uid))
             conn.commit()
         except Exception:
             pass
@@ -1202,7 +1286,9 @@ async def upload_file(file: UploadFile = File(...), request: Request = None):
     with open(dest_path, "wb") as f:
         f.write(data)
 
-    return {"url": f"/uploads/{filename}"}
+    public_path = f"/uploads/{filename}"
+    public_url = absolutize_image_url(public_path, request)
+    return {"url": public_url or public_path}
 
 
 @app.get("/groups")
@@ -1258,6 +1344,19 @@ def add_member(group_name: str, req: AddMemberReq, request: Request):
             conn.commit()
         except sqlite3.IntegrityError:
             raise HTTPException(status_code=409, detail="User is already a member of this group")
+        # Also add to conversation_participants if conversation exists
+        row_conv = conn.execute("SELECT conversation_id FROM groups WHERE id = ?", (gid,)).fetchone()
+        conv_id = row_conv['conversation_id'] if row_conv and row_conv['conversation_id'] else None
+        if not conv_id:
+            # create conversation for group
+            conn.execute("INSERT INTO conversations (type, title) VALUES ('group', ?)", (group_name,))
+            conv_id = conn.execute("SELECT last_insert_rowid() as id").fetchone()['id']
+            conn.execute("UPDATE groups SET conversation_id = ? WHERE id = ?", (conv_id, gid))
+        try:
+            conn.execute("INSERT OR IGNORE INTO conversation_participants (conversation_id, user_id, role) VALUES (?, ?, ?)", (conv_id, uid, req.role))
+            conn.commit()
+        except sqlite3.IntegrityError:
+            pass
 
         row = conn.execute(
             """
@@ -1371,7 +1470,7 @@ def send_message(group_name: str, req: SendMessageReq, request: Request):
 
         row = conn.execute(
             """
-            SELECT m.id, m.group_id, u.username, u.display_name, u.avatar_url, 
+            SELECT m.id, m.group_id, m.conversation_id, u.username, u.display_name, u.avatar_url, 
                    m.content, m.image_url, m.created_at
             FROM messages m
             JOIN users u ON u.id = m.user_id
@@ -1380,6 +1479,7 @@ def send_message(group_name: str, req: SendMessageReq, request: Request):
         ).fetchone()
         
         message_data = dict(row)
+        message_data["image_url"] = absolutize_image_url(message_data.get("image_url"), request)
         # Add like info (0 likes initially)
         message_data["like_count"] = 0
         message_data["liked_by_current_user"] = False
@@ -1441,8 +1541,8 @@ def get_messages(
 
         rows = conn.execute(
             f"""
-            SELECT m.id, m.group_id, u.username, u.display_name, u.avatar_url, 
-                   m.content, m.image_url, m.created_at
+                 SELECT m.id, m.group_id, m.conversation_id, u.username, u.display_name, u.avatar_url, 
+                     m.content, m.image_url, m.created_at
             FROM messages m
             JOIN users u ON u.id = m.user_id
             WHERE {where_sql}
@@ -1455,6 +1555,7 @@ def get_messages(
         messages = []
         for row in rows:
             message_data = dict(row)
+            message_data['image_url'] = absolutize_image_url(message_data.get('image_url'), request)
             # Get like info for each message
             like_info = get_message_like_info(conn, message_data["id"], username)
             message_data["like_count"] = like_info["like_count"]
@@ -1462,6 +1563,96 @@ def get_messages(
             messages.append(MessageOut(**message_data))
 
         return messages
+    finally:
+        conn.close()
+
+
+@app.get('/conversations')
+def list_conversations(request: Request):
+    current = get_current_user(request)
+    conn = get_conn()
+    try:
+        uid = get_user_id(conn, current)
+        rows = conn.execute(
+            '''
+            SELECT conv.id, conv.type, conv.title, conv.metadata, conv.created_at, conv.last_activity_at,
+                   COUNT(cp.user_id) as member_count,
+                   (SELECT m.created_at FROM messages m WHERE m.conversation_id = conv.id ORDER BY m.created_at DESC LIMIT 1) as last_message_at
+            FROM conversations conv
+            JOIN conversation_participants cp ON conv.id = cp.conversation_id
+            WHERE cp.user_id = ?
+            GROUP BY conv.id
+            ORDER BY COALESCE(conv.last_activity_at, last_message_at) DESC
+            ''', (uid,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+@app.get('/conversations/{conv_id}/messages', response_model=List[MessageOut])
+def get_conversation_messages(conv_id: int, limit: int = 100, before: Optional[str] = None, request: Request = None):
+    if limit < 1 or limit > 1000:
+        raise HTTPException(status_code=400, detail='limit must be between 1 and 1000')
+    if not request:
+        raise HTTPException(status_code=401, detail='Not authenticated')
+    current = get_current_user(request)
+    conn = get_conn()
+    try:
+        uid = get_user_id(conn, current)
+        mem = conn.execute('SELECT 1 FROM conversation_participants WHERE conversation_id = ? AND user_id = ?', (conv_id, uid)).fetchone()
+        if not mem:
+            raise HTTPException(status_code=403, detail='Not a participant of this conversation')
+
+        where = ['m.conversation_id = ?']
+        params = [conv_id]
+        if before:
+            where.append('m.created_at < ?')
+            params.append(before)
+
+        rows = conn.execute(
+            f"""
+            SELECT m.id, m.group_id, m.conversation_id, u.username, u.display_name, u.avatar_url,
+                   m.content, m.image_url, m.created_at
+            FROM messages m
+            JOIN users u ON u.id = m.user_id
+            WHERE {' AND '.join(where)}
+            ORDER BY m.created_at DESC
+            LIMIT ?
+            """,
+            (*params, limit)
+        ).fetchall()
+
+        messages = []
+        for row in rows:
+            msg = dict(row)
+            msg['image_url'] = absolutize_image_url(msg.get('image_url'), request)
+            like_info = get_message_like_info(conn, msg['id'], current)
+            msg['like_count'] = like_info['like_count']
+            msg['liked_by_current_user'] = like_info['liked_by_user']
+            messages.append(MessageOut(**msg))
+        return messages
+    finally:
+        conn.close()
+
+
+@app.get('/conversations/{conv_id}/participants')
+def get_conversation_participants(conv_id: int, request: Request):
+    current = get_current_user(request)
+    conn = get_conn()
+    try:
+        uid = get_user_id(conn, current)
+        mem = conn.execute('SELECT 1 FROM conversation_participants WHERE conversation_id = ? AND user_id = ?', (conv_id, uid)).fetchone()
+        if not mem:
+            raise HTTPException(status_code=403, detail='Not a participant of this conversation')
+        rows = conn.execute('''
+            SELECT u.id, u.username, u.display_name, u.avatar_url, cp.role, cp.last_read_at
+            FROM conversation_participants cp
+            JOIN users u ON u.id = cp.user_id
+            WHERE cp.conversation_id = ?
+            ORDER BY u.username ASC
+        ''', (conv_id,)).fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()
 
@@ -1655,9 +1846,34 @@ async def websocket_endpoint(websocket: WebSocket):
         return
     conn = get_conn()
     try:
+        uid = None
         try:
-            gid = get_group_id(conn, room)
             uid = get_user_id(conn, current)
+        except HTTPException:
+            await websocket.close(code=1008)
+            return
+
+        # If connecting to a conversation room (conversation:{id}), verify participant
+        if isinstance(room, str) and room.startswith('conversation:'):
+            try:
+                conv_id = int(room.split(':', 1)[1])
+            except Exception:
+                await websocket.close(code=1008)
+                return
+            mem = conn.execute(
+                "SELECT 1 FROM conversation_participants WHERE conversation_id = ? AND user_id = ?",
+                (conv_id, uid),
+            ).fetchone()
+            if not mem:
+                await websocket.close(code=1008)
+                return
+        else:
+            # legacy behavior: room is group name
+            try:
+                gid = get_group_id(conn, room)
+            except HTTPException:
+                await websocket.close(code=1008)
+                return
             mem = conn.execute(
                 "SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?",
                 (gid, uid),
@@ -1665,9 +1881,6 @@ async def websocket_endpoint(websocket: WebSocket):
             if not mem:
                 await websocket.close(code=1008)
                 return
-        except HTTPException:
-            await websocket.close(code=1008)
-            return
     finally:
         conn.close()
     ROOMS.setdefault(room, [])
@@ -1689,28 +1902,73 @@ async def websocket_endpoint(websocket: WebSocket):
             if payload.get('type') == 'message':
                 conn = get_conn()
                 try:
-                    # Ensure group exists
-                    group_name = room
-                    row = conn.execute('SELECT id FROM groups WHERE name = ?', (group_name,)).fetchone()
-                    if row:
-                        gid = int(row['id'])
-                    else:
-                        conn.execute('INSERT INTO groups (name, description) VALUES (?, ?)', (group_name, None))
-                        gid = conn.execute('SELECT last_insert_rowid() as id').fetchone()['id']
-                    # Ensure user exists and is a member
+                    # sender uid
                     try:
                         uid = get_user_id(conn, sender)
                     except HTTPException:
                         uid = None
-                    if uid:
-                        # Add membership if missing
-                        mem = conn.execute('SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?', (gid, uid)).fetchone()
-                        if not mem:
+
+                    if isinstance(room, str) and room.startswith('conversation:'):
+                        try:
+                            conv_id = int(room.split(':', 1)[1])
+                        except Exception:
+                            conv_id = None
+                        if not conv_id:
+                            return
+
+                        # Ensure participant exists
+                        if uid:
                             try:
-                                conn.execute('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)', (gid, uid))
+                                conn.execute('INSERT OR IGNORE INTO conversation_participants (conversation_id, user_id, role) VALUES (?, ?, ?)', (conv_id, uid, 'member'))
                             except sqlite3.IntegrityError:
                                 pass
-                        conn.execute('INSERT INTO messages (group_id, user_id, content) VALUES (?, ?, ?)', (gid, uid, payload.get('content')))
+
+                        # Optionally find linked group id
+                        grow = conn.execute('SELECT id FROM groups WHERE conversation_id = ?', (conv_id,)).fetchone()
+                        gid = int(grow['id']) if grow else None
+
+                        # Insert message with conversation_id
+                        try:
+                            if gid:
+                                conn.execute('INSERT INTO messages (group_id, conversation_id, user_id, content) VALUES (?, ?, ?, ?)', (gid, conv_id, uid, payload.get('content')))
+                            else:
+                                conn.execute('INSERT INTO messages (conversation_id, user_id, content) VALUES (?, ?, ?)', (conv_id, uid, payload.get('content')))
+                        except sqlite3.OperationalError:
+                            # older DB fallback
+                            if gid:
+                                conn.execute('INSERT INTO messages (group_id, user_id, content) VALUES (?, ?, ?)', (gid, uid, payload.get('content')))
+                        conn.commit()
+                    else:
+                        # legacy group-name room behavior
+                        group_name = room
+                        row = conn.execute('SELECT id FROM groups WHERE name = ?', (group_name,)).fetchone()
+                        if row:
+                            gid = int(row['id'])
+                        else:
+                            conn.execute('INSERT INTO groups (name, description) VALUES (?, ?)', (group_name, None))
+                            gid = conn.execute('SELECT last_insert_rowid() as id').fetchone()['id']
+
+                        # Add membership if missing
+                        if uid:
+                            mem = conn.execute('SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?', (gid, uid)).fetchone()
+                            if not mem:
+                                try:
+                                    conn.execute('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)', (gid, uid))
+                                except sqlite3.IntegrityError:
+                                    pass
+
+                        # Ensure conversation exists for this group and insert message tied to it
+                        conv_row = conn.execute('SELECT conversation_id FROM groups WHERE id = ?', (gid,)).fetchone()
+                        conv_id = conv_row['conversation_id'] if conv_row else None
+                        if not conv_id:
+                            conn.execute("INSERT INTO conversations (type, title) VALUES ('group', ?)", (group_name,))
+                            conv_id = conn.execute('SELECT last_insert_rowid() as id').fetchone()['id']
+                            conn.execute('UPDATE groups SET conversation_id = ? WHERE id = ?', (conv_id, gid))
+
+                        try:
+                            conn.execute('INSERT INTO messages (group_id, conversation_id, user_id, content) VALUES (?, ?, ?, ?)', (gid, conv_id, uid, payload.get('content')))
+                        except sqlite3.OperationalError:
+                            conn.execute('INSERT INTO messages (group_id, user_id, content) VALUES (?, ?, ?)', (gid, uid, payload.get('content')))
                         conn.commit()
                 finally:
                     conn.close()

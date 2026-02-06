@@ -1,5 +1,5 @@
 import React, {useEffect, useState} from 'react'
-import { useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import api from '../lib/api'
 import PostGrid from '../components/PostGrid'
 import PostModal from '../components/PostModal'
@@ -101,7 +101,7 @@ export default function Profile(){
     <div>
       <div className="card p-4 mb-4">
         <h1 className="text-2xl font-semibold">Profile</h1>
-        <p className="text-sm text-gray-600">@{username}</p>
+        <p className="text-sm text-slate-300">@{username}</p>
       </div>
 
       {user && (
@@ -110,9 +110,9 @@ export default function Profile(){
             <div className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-400 to-pink-400" />
             <div>
               <div className="font-medium text-lg">{user.display_name || user.username}</div>
-              <div className="text-sm text-gray-500">@{user.username}</div>
+              <div className="text-sm text-slate-400">@{user.username}</div>
               {user.bio && <div className="mt-2 text-sm">{user.bio}</div>}
-              <div className="mt-2 text-sm text-gray-600">
+              <div className="mt-2 text-sm text-slate-300">
                 {user.website && <div>Website: {user.website}</div>}
                 {user.location && <div>Location: {user.location}</div>}
               </div>
@@ -140,7 +140,12 @@ export default function Profile(){
               <button onClick={async ()=>{
                 try{
                   const group = await api.post(`/dm/${username}`)
-                  window.location.href = `/rooms/${encodeURIComponent(group.name)}`
+                  const convId = group?.conversation?.id
+                  if(convId){
+                    window.location.href = `/rooms/${encodeURIComponent(`conv:${convId}`)}`
+                  }else{
+                    window.location.href = `/rooms/${encodeURIComponent(group.name)}`
+                  }
                 }catch(e){
                   alert('Mutual follow required to start a chat')
                 }
@@ -172,7 +177,7 @@ export default function Profile(){
 
       <div className="mt-6">
         <h2 className="text-lg font-semibold mb-2">Posts</h2>
-        {loadingPosts && <div className="text-sm text-gray-500">Loading posts...</div>}
+        {loadingPosts && <div className="text-sm text-slate-400">Loading posts...</div>}
         {!loadingPosts && (
           <PostGrid posts={posts.filter(p=>p.image_url)} onSelect={setSelected} />
         )}
@@ -187,7 +192,7 @@ export default function Profile(){
           {followers.length === 0 && <div className="empty">No followers yet.</div>}
           <div className="space-y-2">
             {followers.map(f=> (
-              <a key={f.username} href={`/users/${f.username}`} className="block text-sm">@{f.username}</a>
+              <Link key={f.username} to={`/users/${f.username}`} className="block text-sm" onClick={()=>setShowFollowers(false)}>@{f.username}</Link>
             ))}
           </div>
         </Modal>
@@ -198,7 +203,7 @@ export default function Profile(){
           {following.length === 0 && <div className="empty">Not following anyone yet.</div>}
           <div className="space-y-2">
             {following.map(f=> (
-              <a key={f.username} href={`/users/${f.username}`} className="block text-sm">@{f.username}</a>
+              <Link key={f.username} to={`/users/${f.username}`} className="block text-sm" onClick={()=>setShowFollowing(false)}>@{f.username}</Link>
             ))}
           </div>
         </Modal>
@@ -208,12 +213,31 @@ export default function Profile(){
 }
 
 function Modal({title, onClose, children}){
+  useEffect(()=>{
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    function onKeyDown(e){
+      if(e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return ()=>{
+      document.body.style.overflow = prev
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  },[onClose])
+
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" onClick={onClose}>
-      <div className="bg-white w-[90vw] max-w-md rounded-xl p-4" onClick={e=>e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center animate-fade-in" onClick={onClose}>
+      <div
+        className="card w-[90vw] max-w-md p-4 animate-scale-in"
+        onClick={e=>e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
         <div className="flex items-center justify-between mb-2">
           <div className="font-medium">{title}</div>
-          <button onClick={onClose} className="text-sm text-gray-500">✕</button>
+          <button onClick={onClose} className="icon-btn text-gray-600" aria-label="Close">✕</button>
         </div>
         {children}
       </div>

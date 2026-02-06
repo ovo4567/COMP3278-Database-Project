@@ -29,7 +29,8 @@ export default function Messages(){
 
   async function loadRooms(){
     try{
-      const res = await api.get('/groups')
+      // use conversation-backed API
+      const res = await api.get('/conversations')
       setRooms(res || [])
     }catch(e){ console.error(e) }
   }
@@ -55,12 +56,12 @@ export default function Messages(){
     <div>
       <div className="card p-4 mb-4">
         <h1 className="text-2xl font-semibold">Messages</h1>
-        <p className="text-sm text-gray-600">Join a room or create a new one.</p>
+        <p className="text-sm text-slate-300">Join a room or create a new one.</p>
       </div>
 
       {!current && authChecked && (
         <div className="card p-4 mb-4">
-          <div className="text-sm text-gray-600">Please log in to view your rooms.</div>
+          <div className="text-sm text-slate-300">Please log in to view your rooms.</div>
         </div>
       )}
 
@@ -85,10 +86,10 @@ export default function Messages(){
             <li key={r.id} className="card p-3 card-hover">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="font-medium">{r.name}</div>
-                  {r.description && <div className="text-sm text-gray-500">{r.description}</div>}
+                  <div className="font-medium">{r.title || r.name || (`${r.type}:${r.id}`)}</div>
+                  {r.metadata && <div className="text-sm text-slate-400">{r.metadata}</div>}
                 </div>
-                <Link to={`/rooms/${encodeURIComponent(r.name)}`} className="btn-ghost">Open</Link>
+                <Link to={`/rooms/${encodeURIComponent(`conv:${r.id}`)}`} className="btn-ghost">Open</Link>
               </div>
             </li>
           ))}

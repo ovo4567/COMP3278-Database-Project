@@ -13,7 +13,9 @@ export default function ChatRoom(){
 
   const wsUrl = useMemo(()=>{
     const base = API_BASE.replace(/^http/, 'ws')
-    return `${base}/ws?room=${encodeURIComponent(roomId)}`
+    // support conversation rooms: conv:{id} -> websocket room conversation:{id}
+    const roomParam = roomId.startsWith('conv:') ? `conversation:${roomId.split(':',2)[1]}` : roomId
+    return `${base}/ws?room=${encodeURIComponent(roomParam)}`
   },[roomId])
 
   useEffect(()=>{
@@ -37,7 +39,13 @@ export default function ChatRoom(){
     async function loadHistory(){
       setLoading(true)
       try{
-        const res = await api.get(`/groups/${encodeURIComponent(roomId)}/messages?limit=50`)
+        let res
+        if(roomId.startsWith('conv:')){
+          const convId = roomId.split(':',2)[1]
+          res = await api.get(`/conversations/${encodeURIComponent(convId)}/messages?limit=50`)
+        }else{
+          res = await api.get(`/groups/${encodeURIComponent(roomId)}/messages?limit=50`)
+        }
         if(ignore) return
         const sorted = (res || []).slice().sort((a,b)=> new Date(a.created_at) - new Date(b.created_at))
         setMessages(sorted)
@@ -54,7 +62,13 @@ export default function ChatRoom(){
     let ignore = false
     async function loadMembers(){
       try{
-        const res = await api.get(`/groups/${encodeURIComponent(roomId)}/members`)
+        let res
+        if(roomId.startsWith('conv:')){
+          const convId = roomId.split(':',2)[1]
+          res = await api.get(`/conversations/${encodeURIComponent(convId)}/participants`)
+        }else{
+          res = await api.get(`/groups/${encodeURIComponent(roomId)}/members`)
+        }
         if(ignore) return
         setMembers(res || [])
       }catch(e){
@@ -100,11 +114,11 @@ export default function ChatRoom(){
     <div>
       <div className="card p-4 mb-4">
         <h1 className="text-2xl font-semibold">Chat Room {roomId}</h1>
-        <p className="text-sm text-gray-600">Real-time messages in this room.</p>
+        <p className="text-sm text-slate-300">Real-time messages in this room.</p>
       </div>
       {!current && authChecked && (
         <div className="card p-4 mb-4">
-          <div className="text-sm text-gray-600">Please log in to view this chat.</div>
+          <div className="text-sm text-slate-300">Please log in to view this chat.</div>
         </div>
       )}
       {current && !roomId.startsWith('dm:') && (
@@ -116,7 +130,7 @@ export default function ChatRoom(){
         <div className="card p-3 mb-4">
           <div className="text-sm font-medium mb-2">Members</div>
           <div className="flex flex-wrap gap-2">
-            {members.length === 0 && <span className="text-xs text-gray-500">No members yet.</span>}
+            {members.length === 0 && <span className="text-xs text-slate-400">No members yet.</span>}
             {members.map(m => (
               <span key={m.username} className="badge">@{m.username}</span>
             ))}
@@ -124,7 +138,7 @@ export default function ChatRoom(){
         </div>
       )}
       <div className="card p-4 mb-4 h-72 overflow-auto">
-        {loading && <div className="text-sm text-gray-500 mb-2">Loading history...</div>}
+        {loading && <div className="text-sm text-slate-400 mb-2">Loading history...</div>}
         {!loading && messages.length === 0 && (
           <div className="empty">No messages yet. Say hello!</div>
         )}
@@ -133,9 +147,9 @@ export default function ChatRoom(){
             <div className="flex items-center gap-2">
               <div className="w-6 h-6 rounded-full bg-gradient-to-br from-indigo-400 to-pink-400" />
               <strong className="text-sm">{m.user||'anon'}</strong>
-              <span className="text-xs text-gray-400">{m.created_at ? new Date(m.created_at).toLocaleTimeString() : ''}</span>
+              <span className="text-xs text-slate-500">{m.created_at ? new Date(m.created_at).toLocaleTimeString() : ''}</span>
             </div>
-            <div className="ml-8 text-sm text-gray-700">{m.content}</div>
+            <div className="ml-8 text-sm text-slate-200">{m.content}</div>
           </div>
         ))}
       </div>

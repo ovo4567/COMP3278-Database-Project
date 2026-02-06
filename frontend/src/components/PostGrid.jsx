@@ -10,13 +10,13 @@ export default function PostGrid({posts, onSelect}){
         <button
           key={p.id}
           onClick={()=>onSelect(p)}
-          className="aspect-square bg-[#efefef] overflow-hidden"
+          className="group aspect-square bg-white/5 border border-white/10 hover:bg-white/10 overflow-hidden transition duration-300"
           title="Open post"
         >
           {p.image_url ? (
-            <img src={p.image_url} alt="post" className="w-full h-full object-cover" />
+            <img src={p.image_url} alt="post" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.06]" />
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">No image</div>
+            <div className="w-full h-full flex items-center justify-center text-xs text-slate-400">No image</div>
           )}
         </button>
       ))}

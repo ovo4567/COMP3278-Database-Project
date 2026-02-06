@@ -39,10 +39,9 @@ export default function Explore(){
     <div>
       <div className="card p-4 mb-4">
         <h1 className="text-2xl font-semibold">Explore</h1>
-        <p className="text-sm text-gray-600">Discover popular posts and new profiles.</p>
+        <p className="text-sm text-slate-300">Discover popular posts and new profiles.</p>
         <div className="mt-3 flex gap-2">
-          <input value={query} onChange={e=>setQuery(e.target.value)} className="input flex-1" placeholder="Search users" />
-          <button className="btn-primary" onClick={()=>{}} disabled>Search</button>
+          <input value={query} onChange={e=>setQuery(e.target.value)} className="input flex-1" placeholder="Filter suggested users" aria-label="Filter suggested users" />
         </div>
       </div>
 

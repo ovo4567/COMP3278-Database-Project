@@ -1,4 +1,5 @@
 import React, {useEffect, useState} from 'react'
+import { Link } from 'react-router-dom'
 import api from '../lib/api'
 
 export default function Comments({messageId}){
@@ -38,6 +39,11 @@ export default function Comments({messageId}){
     setLoading(true)
     try{
       const username = localStorage.getItem('currentUser') || ''
+      if(!username){
+        alert('Please log in to comment')
+        setLoading(false)
+        return
+      }
       const res = await api.post(`/messages/${messageId}/comments`, { username, content: text })
       setComments(c=>[...c, res])
       setText('')
@@ -62,12 +68,12 @@ export default function Comments({messageId}){
       )}
       <div className="space-y-2 mb-3">
         {comments.map(c=> (
-          <div key={c.id} className="p-2 bg-white/70 border border-gray-100 rounded-xl">
+          <div key={c.id} className="p-2 bg-white/5 border border-white/10 rounded-xl">
             <div className="text-sm">
-              <a className="font-medium" href={`/users/${c.username}`}>@{c.username}</a>
-              <span className="text-xs text-gray-500 ml-2">{new Date(c.created_at).toLocaleString()}</span>
+              <Link className="font-medium" to={`/users/${c.username}`}>@{c.username}</Link>
+              <span className="text-xs text-slate-400 ml-2">{new Date(c.created_at).toLocaleString()}</span>
             </div>
-            <div className="text-sm text-gray-700">{c.content}</div>
+            <div className="text-sm text-slate-200">{c.content}</div>
             {localStorage.getItem('currentUser')===c.username && (
               <div className="mt-1"><button onClick={()=>remove(c.id)} className="text-xs text-rose-600">Delete</button></div>
             )}

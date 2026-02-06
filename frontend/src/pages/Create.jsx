@@ -20,11 +20,11 @@ export default function Create(){
     <div>
       <div className="card p-4 mb-4">
         <h1 className="text-2xl font-semibold">Create</h1>
-        <p className="text-sm text-gray-600">Share a photo to your profile.</p>
+        <p className="text-sm text-slate-300">Share a photo to your profile.</p>
       </div>
       {!current && authChecked && (
         <div className="card p-4">
-          <div className="text-sm text-gray-600">Please log in to create a post.</div>
+          <div className="text-sm text-slate-300">Please log in to create a post.</div>
         </div>
       )}
       {current && (

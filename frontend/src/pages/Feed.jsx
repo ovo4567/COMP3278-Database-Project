@@ -82,7 +82,7 @@ export default function Feed(){
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-xl font-semibold">Home</h1>
-              <p className="text-xs text-gray-500">Instagram-style feed</p>
+              <p className="text-xs text-slate-400">Instagram-style feed</p>
             </div>
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={followingOnly} onChange={()=>{toggleFollowing()}} />
@@ -93,13 +93,18 @@ export default function Feed(){
 
         {!current && authChecked && (
           <div className="card p-4 mb-4">
-            <div className="text-sm text-gray-600">Please log in to view the feed.</div>
+            <div className="text-sm text-slate-300">Please log in to view the feed.</div>
           </div>
         )}
 
         {current && <PostComposer onPosted={handleNew} />}
 
-        {current && loading && <div className="text-sm text-gray-500">Loading feed...</div>}
+        {current && loading && posts.length === 0 && (
+          <FeedSkeleton />
+        )}
+        {current && loading && posts.length > 0 && (
+          <div className="text-sm text-slate-400">Loading more…</div>
+        )}
         {current && !loading && posts.length === 0 && (
           <div className="empty">No posts yet. Be the first to share something.</div>
         )}
@@ -130,6 +135,27 @@ export default function Feed(){
           </div>
         </div>
       </aside>
+    </div>
+  )
+}
+
+function FeedSkeleton(){
+  return (
+    <div className="space-y-4 mb-4">
+      {Array.from({ length: 3 }).map((_, idx) => (
+        <div key={idx} className="card p-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full skeleton skeleton-shimmer" />
+            <div className="flex-1">
+              <div className="h-3 w-24 skeleton skeleton-shimmer" />
+              <div className="h-3 w-36 skeleton-soft skeleton-shimmer mt-2" />
+            </div>
+          </div>
+          <div className="mt-3 h-64 w-full rounded-2xl skeleton skeleton-shimmer" />
+          <div className="mt-3 h-3 w-3/4 skeleton-soft skeleton-shimmer" />
+          <div className="mt-2 h-3 w-1/2 skeleton-soft skeleton-shimmer" />
+        </div>
+      ))}
     </div>
   )
 }

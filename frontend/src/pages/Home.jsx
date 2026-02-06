@@ -4,7 +4,7 @@ export default function Home(){
   return (
     <div>
       <h1 className="text-2xl font-semibold mb-4">Home Feed</h1>
-      <p className="text-sm text-gray-600">Feed and PostComposer will go here.</p>
+      <p className="text-sm text-slate-300">Feed and PostComposer will go here.</p>
     </div>
   )
 }

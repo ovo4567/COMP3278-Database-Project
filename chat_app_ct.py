@@ -174,6 +174,29 @@ CREATE INDEX IF NOT EXISTS idx_messages_group_time ON messages(group_id, created
 CREATE INDEX IF NOT EXISTS idx_messages_user_time ON messages(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_message_likes_message ON message_likes(message_id);
 CREATE INDEX IF NOT EXISTS idx_message_likes_user ON message_likes(user_id);
+
+-- Conversations abstraction for DM + group chats
+CREATE TABLE IF NOT EXISTS conversations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT NOT NULL CHECK(type IN ('dm','group')),
+    title TEXT,
+    metadata TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_activity_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS conversation_participants (
+    conversation_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    role TEXT DEFAULT 'member',
+    last_read_at TEXT,
+    PRIMARY KEY (conversation_id, user_id),
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_conv_part_user ON conversation_participants(user_id);
+CREATE INDEX IF NOT EXISTS idx_conversations_last_activity ON conversations(last_activity_at);
 """
 
 
@@ -1324,10 +1347,26 @@ def send_message(group_name: str, req: SendMessageReq, request: Request):
             except sqlite3.IntegrityError:
                 pass
 
-        conn.execute(
-            "INSERT INTO messages (group_id, user_id, content, image_url) VALUES (?, ?, ?, ?)",
-            (gid, uid, req.content, req.image_url),
-        )
+        # ensure there is a conversation for this group and insert message tied to it
+        conv_row = conn.execute("SELECT conversation_id FROM groups WHERE id = ?", (gid,)).fetchone()
+        conv_id = conv_row["conversation_id"] if conv_row else None
+        if not conv_id:
+            conn.execute("INSERT INTO conversations (type, title) VALUES ('group', ?)", (group_name,))
+            conv_id = conn.execute("SELECT last_insert_rowid() as id").fetchone()["id"]
+            conn.execute("UPDATE groups SET conversation_id = ? WHERE id = ?", (conv_id, gid))
+
+        # Try to insert both group_id and conversation_id (conversation column added by migration)
+        try:
+            conn.execute(
+                "INSERT INTO messages (group_id, conversation_id, user_id, content, image_url) VALUES (?, ?, ?, ?, ?)",
+                (gid, conv_id, uid, req.content, req.image_url),
+            )
+        except sqlite3.OperationalError:
+            # older DB without conversation_id column: fall back
+            conn.execute(
+                "INSERT INTO messages (group_id, user_id, content, image_url) VALUES (?, ?, ?, ?)",
+                (gid, uid, req.content, req.image_url),
+            )
         conn.commit()
 
         row = conn.execute(
@@ -1378,8 +1417,18 @@ def get_messages(
         if not mem:
             raise HTTPException(status_code=403, detail="Not a group member")
 
-        where = ["m.group_id = ?"]
-        params = [gid]
+        # determine conversation id for this group (if exists)
+        conv_row = conn.execute("SELECT conversation_id FROM groups WHERE id = ?", (gid,)).fetchone()
+        conv_id = conv_row["conversation_id"] if conv_row else None
+
+        where = []
+        params = []
+        if conv_id:
+            where.append("(m.group_id = ? OR m.conversation_id = ?)")
+            params.extend([gid, conv_id])
+        else:
+            where.append("m.group_id = ?")
+            params.append(gid)
 
         if after:
             where.append("m.created_at >= ?")
@@ -1427,22 +1476,31 @@ def like_message(message_id: int, req: LikeMessageReq, request: Request):
             raise HTTPException(status_code=400, detail="Username required")
         uid = get_user_id(conn, req.username)
         
-        # Check if message exists
+        # Check if message exists and determine its conversation/group
         message_row = conn.execute(
-            "SELECT id, group_id FROM messages WHERE id = ?",
+            "SELECT id, group_id, conversation_id FROM messages WHERE id = ?",
             (message_id,)
         ).fetchone()
         if not message_row:
             raise HTTPException(status_code=404, detail="Message not found")
-        
-        # Check if user is member of the group
-        group_id = message_row["group_id"]
-        mem = conn.execute(
-            "SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?",
-            (group_id, uid),
-        ).fetchone()
-        if not mem:
-            raise HTTPException(status_code=403, detail="User is not a member of this group")
+
+        # If message belongs to a conversation, check conversation participants
+        conv_id = message_row.get("conversation_id") if message_row else None
+        if conv_id:
+            mem = conn.execute(
+                "SELECT 1 FROM conversation_participants WHERE conversation_id = ? AND user_id = ?",
+                (conv_id, uid),
+            ).fetchone()
+            if not mem:
+                raise HTTPException(status_code=403, detail="User is not a participant in this conversation")
+        else:
+            group_id = message_row["group_id"]
+            mem = conn.execute(
+                "SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?",
+                (group_id, uid),
+            ).fetchone()
+            if not mem:
+                raise HTTPException(status_code=403, detail="User is not a member of this group")
         
         # Check if already liked
         existing_like = conn.execute(

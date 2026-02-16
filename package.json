@@ -1,0 +1,20 @@
+{
+  "name": "group-project_v1",
+  "version": "1.0.0",
+  "description": "",
+  "private": true,
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "npm -w server run dev & npm -w client run dev",
+    "dev:server": "npm -w server run dev",
+    "dev:client": "npm -w client run dev",
+    "build": "npm -w server run build && npm -w client run build",
+    "lint": "npm -w server run lint && npm -w client run lint"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

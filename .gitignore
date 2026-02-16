@@ -1,0 +1,25 @@
+# deps
+node_modules/
+
+# env
+.env
+server/.env
+client/.env
+
+# builds
+dist/
+client/dist/
+server/dist/
+
+# sqlite
+a*.db
+*.db
+server/data/
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# misc
+.DS_Store

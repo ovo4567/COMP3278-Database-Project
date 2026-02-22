@@ -17,12 +17,11 @@ export const runMigrations = async (): Promise<void> => {
   const migrationsDir = path.resolve(__dirname, '../../migrations');
   const migrationFiles = [
     '001_init.sql',
-    '002_chat.sql',
-    '003_chat_dm.sql',
     '004_user_status.sql',
     '005_user_ban.sql',
     '006_friendships.sql',
     '007_post_visibility_notifications.sql',
+    '008_visibility_no_private.sql',
   ];
 
   for (const name of migrationFiles) {

@@ -44,23 +44,23 @@ export function CommentsPanel(props: { postId: number }) {
   };
 
   return (
-    <div className="mt-2 rounded-md border bg-gray-50 p-3">
+    <div className="ui-panel ui-panel-soft mt-2 p-3">
       <form onSubmit={submit} className="flex gap-2">
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="Write a comment"
-          className="w-full rounded-md border bg-white px-3 py-2 text-sm"
+          className="ui-input"
         />
-        <button className="rounded-md bg-gray-900 px-3 py-2 text-sm text-white">Send</button>
+        <button className="ui-btn ui-btn-primary shrink-0 px-3 py-2" type="submit">Send</button>
       </form>
 
-      {error ? <div className="mt-2 text-sm text-red-600">{error}</div> : null}
+      {error ? <div className="ui-error mt-2">{error}</div> : null}
 
       <div className="mt-3 flex flex-col gap-2">
         {items.map((c) => (
-          <div key={c.id} className="rounded-md border bg-white px-3 py-2">
-            <div className="text-xs text-gray-500">
+          <div key={c.id} className="ui-panel ui-panel-soft px-3 py-2">
+            <div className="ui-muted text-xs">
               @{c.user.username} • <Timestamp value={c.createdAt} />
             </div>
             <div className="text-sm">{c.text}</div>
@@ -72,7 +72,7 @@ export function CommentsPanel(props: { postId: number }) {
         <button
           disabled={loading || !nextCursor}
           onClick={() => void load(false)}
-          className="text-sm text-gray-700 disabled:opacity-50"
+          className="ui-link text-sm disabled:opacity-50"
           type="button"
         >
           {nextCursor ? (loading ? 'Loading…' : 'Load older') : 'No more'}

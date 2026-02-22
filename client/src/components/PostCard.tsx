@@ -15,7 +15,7 @@ export function PostCard(props: {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [text, setText] = useState(props.post.text);
   const [imageUrl, setImageUrl] = useState(props.post.imageUrl ?? '');
-  const [visibility, setVisibility] = useState<'public' | 'friends' | 'private'>(props.post.visibility ?? 'public');
+  const [visibility, setVisibility] = useState<'public' | 'friends'>(props.post.visibility ?? 'public');
   const [error, setError] = useState<string | null>(null);
 
   const canEdit = useMemo(() => {
@@ -89,27 +89,26 @@ export function PostCard(props: {
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            className="min-h-20 w-full rounded-md border px-3 py-2 text-sm dark:border-gray-800 dark:bg-gray-950"
+            className="ui-textarea min-h-20"
           />
           <input
             value={imageUrl}
             onChange={(e) => setImageUrl(e.target.value)}
             placeholder="Optional image URL"
-            className="w-full rounded-md border px-3 py-2 text-sm dark:border-gray-800 dark:bg-gray-950"
+            className="ui-input"
           />
           <label className="grid gap-1">
             <div className="text-xs text-gray-600 dark:text-gray-400">Visibility</div>
             <select
               value={visibility}
-              onChange={(e) => setVisibility(e.target.value as 'public' | 'friends' | 'private')}
-              className="w-full rounded-md border bg-white px-3 py-2 text-sm dark:border-gray-800 dark:bg-gray-950"
+              onChange={(e) => setVisibility(e.target.value as 'public' | 'friends')}
+              className="ui-select"
             >
               <option value="public">Public</option>
               <option value="friends">Friends</option>
-              <option value="private">Private</option>
             </select>
           </label>
-          {error ? <div className="text-sm text-red-600">{error}</div> : null}
+          {error ? <div className="ui-error">{error}</div> : null}
           <div className="flex justify-end">
             <button
               onClick={() => void save()}
@@ -121,6 +120,11 @@ export function PostCard(props: {
         </div>
       ) : (
         <>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {props.post.visibility === 'friends' ? (
+              <span className="ui-badge ui-system">Friends</span>
+            ) : null}
+          </div>
           <div className="mt-2 whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100">{props.post.text}</div>
           {props.post.imageUrl ? (
             <div className="mt-2">

@@ -34,12 +34,6 @@ type SeededPost = {
   createdAt: Date;
 };
 
-type SeededGroup = {
-  id: number;
-  isPrivate: boolean;
-  memberIds: number[];
-};
-
 const parseArgs = (argv: string[]) => {
   // For demo repos, always start from a clean database so the app is usable immediately.
   // Keep parsing for backwards compatibility, but default to force reseed.
@@ -96,8 +90,6 @@ const dateBetween = (start: Date, end: Date): Date => {
 
 const normalizePair = (a: number, b: number) => (a < b ? { user1: a, user2: b } : { user1: b, user2: a });
 
-const FRIENDS_ONLY_DM = String(process.env.FRIENDS_ONLY_DM ?? 'false').toLowerCase() === 'true';
-
 const resetAllData = async (force: boolean) => {
   const db = await getDb();
 
@@ -113,12 +105,6 @@ const resetAllData = async (force: boolean) => {
     await db.run('DELETE FROM likes');
     await db.run('DELETE FROM comments');
     await db.run('DELETE FROM posts');
-
-    await db.run('DELETE FROM chat_messages');
-    await db.run('DELETE FROM chat_group_invites');
-    await db.run('DELETE FROM chat_group_members');
-    await db.run('DELETE FROM chat_direct_threads');
-    await db.run('DELETE FROM chat_groups');
 
     await db.run('DELETE FROM friendships');
 
@@ -308,7 +294,7 @@ const seedPosts = async (users: SeededUser[]): Promise<SeededPost[]> => {
       const createdAt = dateWithinLastDays(30);
 
       const r = Math.random();
-      const visibility = r < 0.7 ? 'public' : r < 0.9 ? 'friends' : 'private';
+      const visibility = r < 0.75 ? 'public' : 'friends';
 
       // Demo seed should not rely on external images.
       const wantsImage = false;
@@ -467,250 +453,6 @@ const seedFriendships = async (users: SeededUser[]) => {
   return acceptedPairs;
 };
 
-const seedChatGroups = async (admin: SeededUser, users: SeededUser[]) => {
-  const db = await getDb();
-
-  const groups: SeededGroup[] = [];
-
-  const publicNames = ['General', 'Campus Chat', 'Project Ideas', 'Memes'];
-  const privateNames = ['Study Group', 'Team Lounge'];
-
-  for (const name of publicNames) {
-    const createdBy = pickOne([admin, ...users]);
-    const createdAt = toSqliteDateTime(dateWithinLastDays(30));
-
-    const result = await db.run(
-      'INSERT INTO chat_groups(name, description, is_private, created_by, created_at) VALUES (?, ?, 0, ?, ?)',
-      name,
-      `${name} room for seeded test data.`,
-      createdBy.id,
-      createdAt,
-    );
-
-    const groupId = result.lastID as number;
-
-    const memberCount = randInt(3, Math.min(8, users.length + 1));
-    const members = pickSomeUnique([admin, ...users], memberCount);
-
-    // Ensure creator and admin are members.
-    const memberIds = Array.from(new Set([admin.id, createdBy.id, ...members.map((m) => m.id)]));
-
-    for (const uid of memberIds) {
-      const role = uid === createdBy.id ? 'admin' : 'member';
-      await db.run(
-        'INSERT OR IGNORE INTO chat_group_members(group_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)',
-        groupId,
-        uid,
-        role,
-        createdAt,
-      );
-    }
-
-    groups.push({ id: groupId, isPrivate: false, memberIds });
-  }
-
-  for (const name of privateNames) {
-    const createdBy = pickOne([admin, ...users]);
-    const createdAt = toSqliteDateTime(dateWithinLastDays(30));
-
-    const result = await db.run(
-      'INSERT INTO chat_groups(name, description, is_private, created_by, created_at) VALUES (?, ?, 1, ?, ?)',
-      name,
-      `${name} (private) room for seeded test data.`,
-      createdBy.id,
-      createdAt,
-    );
-
-    const groupId = result.lastID as number;
-
-    const memberCount = randInt(3, Math.min(7, users.length + 1));
-    const members = pickSomeUnique([admin, ...users], memberCount);
-
-    const memberIds = Array.from(new Set([admin.id, createdBy.id, ...members.map((m) => m.id)]));
-
-    for (const uid of memberIds) {
-      const role = uid === createdBy.id ? 'admin' : 'member';
-      await db.run(
-        'INSERT OR IGNORE INTO chat_group_members(group_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)',
-        groupId,
-        uid,
-        role,
-        createdAt,
-      );
-    }
-
-    // Create a couple of invites for users who are NOT members to populate the invites UI.
-    const nonMembers = [admin, ...users].filter((u) => !memberIds.includes(u.id));
-    const invitees = pickSomeUnique(nonMembers, Math.min(2, nonMembers.length));
-    for (const invitee of invitees) {
-      await db.run(
-        'INSERT OR IGNORE INTO chat_group_invites(group_id, invited_user_id, invited_by_user_id, created_at) VALUES (?, ?, ?, ?)',
-        groupId,
-        invitee.id,
-        createdBy.id,
-        toSqliteDateTime(dateWithinLastDays(7)),
-      );
-    }
-
-    groups.push({ id: groupId, isPrivate: true, memberIds });
-  }
-
-  return groups;
-};
-
-const seedChatMessages = async (groups: SeededGroup[]) => {
-  const db = await getDb();
-
-  const textTemplates = [
-    'Hey everyone!',
-    'Anyone around?',
-    'That makes sense.',
-    'Quick question: does this work on your end?',
-    'I’ll take a look in a bit.',
-    'Nice work!',
-    'Let’s keep it simple.',
-    'Dropping an image:',
-    'lol',
-    '✅',
-  ];
-
-  for (const g of groups) {
-    const messageCount = randInt(10, 50);
-    const now = new Date();
-
-    const insertedMessageIds: number[] = [];
-
-    for (let i = 0; i < messageCount; i++) {
-      const senderId = pickOne(g.memberIds);
-      const createdAt = dateWithinLastDays(7);
-      const isImage = false;
-
-      const result = await db.run(
-        'INSERT INTO chat_messages(group_id, user_id, type, text, image_url, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-        g.id,
-        senderId,
-        isImage ? 'image' : 'text',
-        isImage ? null : pickOne(textTemplates),
-        null,
-        toSqliteDateTime(dateBetween(createdAt, now)),
-      );
-
-      insertedMessageIds.push(result.lastID as number);
-    }
-
-    // Create a small number of message notifications for the last few messages,
-    // so the Notifications inbox has realistic content without exploding in size.
-    const lastIds = insertedMessageIds.slice(-3);
-    for (const _msgId of lastIds) {
-      const senderId = pickOne(g.memberIds);
-      const recipients = pickSomeUnique(g.memberIds.filter((id) => id !== senderId), Math.min(3, g.memberIds.length - 1));
-      for (const r of recipients) {
-        await createNotification({
-          userId: r,
-          type: 'message_received',
-          actorUserId: senderId,
-          entityType: 'chat_group',
-          entityId: g.id,
-        });
-      }
-    }
-  }
-};
-
-const seedDmThreads = async (admin: SeededUser, users: SeededUser[]) => {
-  const db = await getDb();
-
-  const eligiblePairs = FRIENDS_ONLY_DM
-    ? await db.all<{ user_id1: number; user_id2: number }[]>("SELECT user_id1, user_id2 FROM friendships WHERE status = 'accepted'")
-    : (() => {
-        const ids = [admin.id, ...users.map((u) => u.id)];
-        const pairs: Array<{ user_id1: number; user_id2: number }> = [];
-        for (let i = 0; i < ids.length; i++) {
-          for (let j = i + 1; j < ids.length; j++) pairs.push({ user_id1: ids[i]!, user_id2: ids[j]! });
-        }
-        return pairs;
-      })();
-
-  if (eligiblePairs.length === 0) {
-    console.log('No eligible DM pairs found (likely FRIENDS_ONLY_DM=true and no friendships). Skipping DM seeding.');
-    return;
-  }
-
-  const pairs = pickSomeUnique(eligiblePairs, Math.min(8, eligiblePairs.length));
-
-  const messageTemplates = [
-    'hey',
-    'what’s up?',
-    'did you see the new post?',
-    'lol true',
-    'I’ll reply later',
-    'nice',
-    'send me the link',
-  ];
-
-  for (const pair of pairs) {
-    const { user1, user2 } = normalizePair(pair.user_id1, pair.user_id2);
-
-    // Check if thread already exists.
-    const existing = await db.get<{ group_id: number }>(
-      'SELECT group_id FROM chat_direct_threads WHERE user_low_id = ? AND user_high_id = ?',
-      user1,
-      user2,
-    );
-
-    let groupId: number;
-
-    if (existing) {
-      groupId = existing.group_id;
-    } else {
-      const createdAt = toSqliteDateTime(dateWithinLastDays(30));
-      const groupRes = await db.run(
-        'INSERT INTO chat_groups(name, description, is_private, created_by, created_at) VALUES (?, ?, 1, ?, ?)',
-        'DM',
-        null,
-        user1,
-        createdAt,
-      );
-
-      groupId = groupRes.lastID as number;
-
-      await db.run('INSERT INTO chat_direct_threads(user_low_id, user_high_id, group_id, created_at) VALUES (?, ?, ?, ?)', user1, user2, groupId, createdAt);
-
-      await db.run('INSERT OR IGNORE INTO chat_group_members(group_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)', groupId, user1, 'member', createdAt);
-      await db.run('INSERT OR IGNORE INTO chat_group_members(group_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)', groupId, user2, 'member', createdAt);
-    }
-
-    const messageCount = randInt(5, 20);
-    const members = [user1, user2];
-
-    for (let i = 0; i < messageCount; i++) {
-      const sender = pickOne(members);
-      const isImage = false;
-      const createdAt = toSqliteDateTime(dateWithinLastDays(7));
-      await db.run(
-        'INSERT INTO chat_messages(group_id, user_id, type, text, image_url, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-        groupId,
-        sender,
-        isImage ? 'image' : 'text',
-        isImage ? null : pickOne(messageTemplates),
-        null,
-        createdAt,
-      );
-    }
-
-    // Create a couple message notifications for the other user.
-    const sender = pickOne(members);
-    const receiver = sender === user1 ? user2 : user1;
-    await createNotification({
-      userId: receiver,
-      type: 'message_received',
-      actorUserId: sender,
-      entityType: 'chat_group',
-      entityId: groupId,
-    });
-  }
-};
-
 const main = async () => {
   const { force } = parseArgs(process.argv.slice(2));
 
@@ -735,15 +477,6 @@ const main = async () => {
 
   console.log('Creating likes...');
   await seedLikes(regularUsers, posts);
-
-  console.log('Creating chat groups...');
-  const groups = await seedChatGroups(admin, regularUsers);
-
-  console.log('Creating chat messages...');
-  await seedChatMessages(groups);
-
-  console.log(`Creating DM threads... (FRIENDS_ONLY_DM=${FRIENDS_ONLY_DM})`);
-  await seedDmThreads(admin, regularUsers);
 
   console.log('Done seeding test data.');
   console.log('Accounts:');

@@ -21,7 +21,7 @@ export type FeedPost = {
   id: number;
   text: string;
   imageUrl: string | null;
-  visibility?: 'public' | 'friends' | 'private';
+  visibility?: 'public' | 'friends';
   likeCount: number;
   likedByMe?: boolean;
   createdAt: string;
@@ -64,13 +64,6 @@ export type AdminAnalytics = {
     series: Array<{ day: string; likes: number; comments: number }>;
     likeToPostRatio: number;
     commentToPostRatio: number;
-  };
-  chat: {
-    totalMessages: number;
-    series: Array<{ day: string; messages: number }>;
-    mostActiveGroups: Array<{ id: number; name: string; isPrivate: boolean; messageCount: number }>;
-    mostActiveChatters: Array<{ id: number; username: string; displayName: string | null; messageCount: number }>;
-    imageMessages: number;
   };
   friends: {
     totalAccepted: number;
@@ -151,43 +144,3 @@ export type RealtimeEvent =
   | { type: 'post_deleted'; postId: number }
   | { type: 'post_liked'; postId: number; likeCount: number; userId?: number; liked?: boolean }
   | { type: 'comment_created'; postId: number; commentId: number };
-
-export type ChatGroup = {
-  id: number;
-  name: string;
-  description: string | null;
-  isPrivate: boolean;
-  createdAt: string;
-  memberCount?: number;
-  myRole?: 'member' | 'admin';
-  lastMessageAt?: string | null;
-  isDm?: boolean;
-  dmWithUsername?: string | null;
-};
-
-export type ChatInvite = {
-  id: number;
-  groupId: number;
-  groupName: string;
-  groupDescription: string | null;
-  createdAt: string;
-};
-
-export type ChatMessage = {
-  id: number;
-  groupId: number;
-  type: 'text' | 'image';
-  text: string | null;
-  imageUrl: string | null;
-  createdAt: string;
-  user: { id: number; username: string; displayName: string | null; avatarUrl: string | null };
-};
-
-export type ChatMember = {
-  id: number;
-  username: string;
-  displayName: string | null;
-  avatarUrl: string | null;
-  role: 'member' | 'admin';
-  joinedAt: string;
-};

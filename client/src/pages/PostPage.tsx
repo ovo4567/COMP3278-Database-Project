@@ -49,14 +49,14 @@ export function PostPage(props: { currentUser: User | null }) {
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Post</h1>
-        <Link to="/" className="text-sm underline">
+        <h1 className="ui-h1">Post</h1>
+        <Link to="/" className="ui-link text-sm">
           Back to feed
         </Link>
       </div>
 
       {loading ? <div className="mt-4 text-sm text-gray-700 dark:text-gray-300">Loading…</div> : null}
-      {error ? <div className="mt-4 text-sm text-red-600">{error}</div> : null}
+      {error ? <div className="ui-error mt-4">{error}</div> : null}
 
       {post ? (
         <div className="mt-4">

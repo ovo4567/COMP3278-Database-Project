@@ -58,7 +58,7 @@ export function SearchPage(props: { currentUser: User | null }) {
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
-      <h1 className="text-xl font-semibold">Search</h1>
+      <h1 className="ui-h1">Search</h1>
 
       <form
         className="mt-3 flex gap-2"
@@ -76,10 +76,10 @@ export function SearchPage(props: { currentUser: User | null }) {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search users and posts"
-          className="w-full rounded-md border px-3 py-2 text-sm dark:border-gray-800 dark:bg-gray-950"
+          className="ui-input"
         />
         <button
-          className="shrink-0 rounded-md bg-gray-900 px-3 py-2 text-sm text-white transition-colors dark:bg-gray-100 dark:text-gray-900"
+          className="ui-btn ui-btn-primary shrink-0 px-3 py-2"
           type="submit"
         >
           Search
@@ -87,11 +87,11 @@ export function SearchPage(props: { currentUser: User | null }) {
       </form>
 
       {loading ? <div className="mt-4 text-sm text-gray-700 dark:text-gray-300">Searching…</div> : null}
-      {error ? <div className="mt-4 text-sm text-red-600">{error}</div> : null}
+      {error ? <div className="ui-error mt-4">{error}</div> : null}
 
       {data ? (
         <div className="mt-4 grid gap-4">
-          <div className="rounded-lg border bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
+          <div className="ui-panel ui-panel-soft p-3">
             <div className="text-sm font-semibold">Users</div>
             <div className="mt-2 space-y-2">
               {data.users.length === 0 ? <div className="text-sm text-gray-600 dark:text-gray-400">No users found</div> : null}
@@ -99,7 +99,7 @@ export function SearchPage(props: { currentUser: User | null }) {
                 <Link
                   key={u.id}
                   to={`/u/${encodeURIComponent(u.username)}`}
-                  className="block rounded-md border px-3 py-2 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800"
+                  className="ui-row block"
                 >
                   <div className="text-sm font-medium">@{u.username}</div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">
@@ -111,7 +111,7 @@ export function SearchPage(props: { currentUser: User | null }) {
             </div>
           </div>
 
-          <div className="rounded-lg border bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
+          <div className="ui-panel ui-panel-soft p-3">
             <div className="text-sm font-semibold">Posts</div>
             <div className="mt-3 space-y-3">
               {data.posts.length === 0 ? <div className="text-sm text-gray-600 dark:text-gray-400">No posts found</div> : null}
@@ -128,7 +128,9 @@ export function SearchPage(props: { currentUser: User | null }) {
           </div>
         </div>
       ) : (
-        <div className="mt-4 text-sm text-gray-700 dark:text-gray-300">Type a query and hit Search.</div>
+        <div className="ui-panel ui-panel-soft mt-4 p-4 text-sm text-gray-700 dark:text-gray-300">
+          Type a query and hit Search.
+        </div>
       )}
     </div>
   );

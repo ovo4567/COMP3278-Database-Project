@@ -5,7 +5,6 @@ import { FeedPage } from './pages/FeedPage';
 import { LoginPage } from './pages/LoginPage';
 import { SignupPage } from './pages/SignupPage';
 import { ProfilePage } from './pages/ProfilePage';
-import { ChatPage } from './pages/ChatPage';
 import { AdminPage } from './pages/AdminPage';
 import { PostPage } from './pages/PostPage';
 import { SearchPage } from './pages/SearchPage';
@@ -102,7 +101,6 @@ export default function App() {
         <Route path="/p/:id" element={<PostPage currentUser={user} />} />
         <Route path="/u/:username" element={<ProfilePage currentUser={user} onUserUpdated={setUser} />} />
         <Route path="/admin" element={<AdminPage currentUser={user} />} />
-        <Route path="/chat" element={<ChatPage currentUser={user} />} />
         <Route path="/notifications" element={<NotificationsPage currentUser={user} onUnreadCountChange={setUnreadNotifications} />} />
 
         <Route path="/login" element={user ? <Navigate to="/" /> : <LoginPage onLogin={setUser} />} />

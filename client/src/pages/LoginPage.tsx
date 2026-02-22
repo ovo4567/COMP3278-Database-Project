@@ -30,21 +30,22 @@ export function LoginPage(props: { onLogin: (user: User) => void }) {
 
   return (
     <div className="mx-auto max-w-md px-4 py-10">
-      <h1 className="text-2xl font-semibold">Login</h1>
-      <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+      <h1 className="ui-h1">Welcome back</h1>
+      <p className="ui-muted mt-1 text-sm">
         No account?{' '}
-        <Link className="underline" to="/signup">
+        <Link className="ui-link" to="/signup">
           Sign up
         </Link>
       </p>
 
-      <form onSubmit={submit} className="mt-6 space-y-3 rounded-lg border bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+      <form onSubmit={submit} className="ui-panel ui-panel-soft mt-6 space-y-3 p-4">
         <div>
           <label className="text-sm font-medium">Username</label>
           <input
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            className="mt-1 w-full rounded-md border px-3 py-2 text-sm dark:border-gray-800 dark:bg-gray-950"
+            className="ui-input mt-1"
+            autoComplete="username"
           />
         </div>
         <div>
@@ -53,15 +54,16 @@ export function LoginPage(props: { onLogin: (user: User) => void }) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             type="password"
-            className="mt-1 w-full rounded-md border px-3 py-2 text-sm dark:border-gray-800 dark:bg-gray-950"
+            className="ui-input mt-1"
+            autoComplete="current-password"
           />
         </div>
 
-        {error ? <div className="text-sm text-red-600">{error}</div> : null}
+        {error ? <div className="ui-error">{error}</div> : null}
 
         <button
           disabled={loading}
-          className="w-full rounded-md bg-gray-900 px-3 py-2 text-sm text-white transition-colors disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900"
+          className="ui-btn ui-btn-primary w-full px-3 py-2 disabled:opacity-50"
         >
           {loading ? 'Logging in…' : 'Login'}
         </button>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { adminApi, authApi, chatApi, friendsApi, notificationsApi, postsApi, usersApi } from '../lib/api';
+import { adminApi, authApi, friendsApi, notificationsApi, postsApi, usersApi } from '../lib/api';
 import type { FriendRequestItem, FriendUser, User, UserProfile } from '../lib/types';
 import { requestUnreadRefresh } from '../lib/notificationsSync';
 import { Timestamp } from '../components/Timestamp';
@@ -35,14 +35,8 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
   const [requestsSentLoadingMore, setRequestsSentLoadingMore] = useState(false);
   const [friendsError, setFriendsError] = useState<string | null>(null);
 
-  const [dmRestriction, setDmRestriction] = useState<{ userId: number; username: string } | null>(null);
-
   const isMe = useMemo(() => {
     return Boolean(currentUser && username && currentUser.username === username);
-  }, [currentUser, username]);
-
-  const canMessage = useMemo(() => {
-    return Boolean(currentUser && username && currentUser.username !== username);
   }, [currentUser, username]);
 
   const isAdminViewingOther = useMemo(() => {
@@ -278,58 +272,6 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
               <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">Joined <Timestamp value={profile.createdAt} variant="date" /></div>
 
               <div className="mt-3 flex flex-wrap gap-2">
-                {canMessage ? (
-                  <button
-                    onClick={async () => {
-                      if (!currentUser || !username) return;
-                      setDmRestriction(null);
-                      try {
-                        const res = await chatApi.startDm(username);
-                        navigate(`/chat?groupId=${encodeURIComponent(String(res.groupId))}`);
-                      } catch (err) {
-                        const msg = err instanceof Error ? err.message : 'Failed to start DM';
-                        setProfileError(msg);
-                        if (msg.toLowerCase().includes('only message friends')) {
-                          setDmRestriction({ userId: profile.id, username });
-                        }
-                      }
-                    }}
-                    className="rounded-md bg-gray-900 px-3 py-1.5 text-sm text-white transition-colors dark:bg-gray-100 dark:text-gray-900"
-                    type="button"
-                  >
-                    Message
-                  </button>
-                ) : null}
-
-                {dmRestriction ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="text-xs text-gray-600 dark:text-gray-400">You can only message friends. Send a friend request first.</div>
-                    <button
-                      disabled={friendBusy}
-                      onClick={async () => {
-                        setFriendBusy(true);
-                        setProfileError(null);
-                        try {
-                          const res = await friendsApi.sendRequest(dmRestriction.userId);
-                          if (currentUser) {
-                            setFriendshipLocal({ status: res.status, actionUserId: currentUser.id });
-                          }
-                          setDmRestriction(null);
-                          await refreshProfile();
-                        } catch (err) {
-                          setProfileError(err instanceof Error ? err.message : 'Failed to send friend request');
-                        } finally {
-                          setFriendBusy(false);
-                        }
-                      }}
-                      className="rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-gray-50 disabled:opacity-50 dark:border-gray-800 dark:hover:bg-gray-800"
-                      type="button"
-                    >
-                      Send friend request
-                    </button>
-                  </div>
-                ) : null}
-
                 {!isMe && currentUser && profile.id ? (
                   <>
                     {(!profile.friendship || profile.friendship.status === 'rejected') ? (
@@ -496,7 +438,7 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
 
                     <button
                       onClick={async () => {
-                        if (!confirm('Delete this user? This will delete their posts, comments, likes, and chat messages.')) return;
+                        if (!confirm('Delete this user? This will delete their posts, comments, and likes.')) return;
                         try {
                           await adminApi.deleteUser(profile.id);
                           navigate('/');
@@ -740,8 +682,8 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
           {isMe ? (
             <div className="mt-4 border-t pt-4">
               <div className="text-sm font-semibold">Edit profile</div>
-              {saveError ? <div className="mt-2 text-sm text-red-600">{saveError}</div> : null}
-              {saveOk ? <div className="mt-2 text-sm text-green-700">Saved</div> : null}
+              {saveError ? <div className="ui-error mt-2">{saveError}</div> : null}
+              {saveOk ? <div className="mt-2 text-sm text-emerald-700 dark:text-emerald-300">Saved</div> : null}
 
               <div className="mt-3 grid gap-3">
                 <label className="grid gap-1">
@@ -752,7 +694,7 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
                       setEditDisplayName(e.target.value);
                       setSaveOk(false);
                     }}
-                    className="w-full rounded-md border px-3 py-2 text-sm dark:border-gray-800 dark:bg-gray-950"
+                    className="ui-input"
                     placeholder="Your name"
                   />
                 </label>
@@ -765,7 +707,7 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
                       setEditStatus(e.target.value);
                       setSaveOk(false);
                     }}
-                    className="w-full rounded-md border px-3 py-2 text-sm dark:border-gray-800 dark:bg-gray-950"
+                    className="ui-input"
                     placeholder="What’s up?"
                   />
                 </label>
@@ -778,7 +720,7 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
                       setEditBio(e.target.value);
                       setSaveOk(false);
                     }}
-                    className="min-h-24 w-full rounded-md border px-3 py-2 text-sm dark:border-gray-800 dark:bg-gray-950"
+                    className="ui-textarea min-h-24"
                     placeholder="Tell people about yourself"
                   />
                 </label>
@@ -791,7 +733,7 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
                       setEditAvatarUrl(e.target.value);
                       setSaveOk(false);
                     }}
-                    className="w-full rounded-md border px-3 py-2 text-sm dark:border-gray-800 dark:bg-gray-950"
+                    className="ui-input"
                     placeholder="https://…"
                   />
                 </label>
@@ -820,7 +762,7 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
                         setSaving(false);
                       }
                     }}
-                    className="rounded-md border bg-white px-4 py-2 text-sm transition-colors disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:bg-gray-800"
+                    className="ui-btn ui-btn-primary px-4 py-2 disabled:opacity-50"
                   >
                     {saving ? 'Saving…' : 'Save'}
                   </button>
@@ -831,12 +773,12 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
         </div>
       ) : null}
 
-      {error ? <div className="mt-4 text-sm text-red-600">{error}</div> : null}
+      {error ? <div className="ui-error mt-4">{error}</div> : null}
 
       <div className="mt-4 flex flex-col gap-3">
         {items.map((p) => (
-          <article key={p.id} className="rounded-lg border bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
-            <div className="text-xs text-gray-500 dark:text-gray-400">
+          <article key={p.id} className="ui-panel ui-panel-soft p-3">
+            <div className="ui-muted text-xs">
               <Timestamp value={p.createdAt} />
             </div>
             <div className="mt-1 whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100">{p.text}</div>
@@ -845,7 +787,7 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
                 <img src={p.imageUrl} alt="Post" className="max-h-96 w-full rounded-md border object-contain" loading="lazy" />
               </div>
             ) : null}
-            <div className="mt-2 text-sm text-gray-700 dark:text-gray-300">Likes: {p.likeCount}</div>
+            <div className="ui-muted mt-2 text-sm">Likes: {p.likeCount}</div>
           </article>
         ))}
       </div>
@@ -854,7 +796,7 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
         <button
           disabled={loading || !nextCursor}
           onClick={() => void load(false)}
-          className="rounded-md border bg-white px-4 py-2 text-sm transition-colors disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:bg-gray-800"
+          className="ui-btn px-4 py-2 disabled:opacity-50"
         >
           {nextCursor ? (loading ? 'Loading…' : 'Load more') : 'No more'}
         </button>

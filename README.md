@@ -1,6 +1,17 @@
-# Local Social App (SQLite + Node + React)
+# Social Media App (SQLite + Node + React)
 
-Demo-ready local social app with auth, feed/posts/likes/comments, friends, notifications, search, admin analytics, and real-time chat (groups + DMs) built with SQLite + Express + React + Tailwind.
+Demo-ready local social media app built with SQLite + Express + React + Tailwind.
+
+Core features:
+- Auth: signup/login with access + refresh tokens
+- Feed: image posts via URLs, likes, comments
+- Social: friends + friends-only feed scope
+- Post visibility: `public` or `friends` (no `private`)
+- Notifications: in-app notifications + unread badge
+- Search: users + posts
+- Admin: analytics dashboard + read-only SQL console
+- UI: dark mode + polished design system
+- Realtime: live updates for post/like/comment changes (Socket.IO)
 
 ## Prereqs
 - Node.js 18+ recommended
@@ -36,17 +47,6 @@ Demo-ready local social app with auth, feed/posts/likes/comments, friends, notif
 ## Seed only an admin user (optional)
 - `npm -w server run seed:admin`
 
-## Features (current)
-- Auth: signup/login with access+refresh tokens (multi-device sessions)
-- Profile: view profiles, edit your own profile (display name, status, bio, avatar URL)
-- Feed: create posts, view feed (new/popular), like/unlike, comments
-- Friends: requests + accept/reject + friends feed scope
-- Notifications: in-app notifications + unread badge
-- Search: users + posts
-- Chat: public/private groups, private group invites (admin-only), real-time messaging
-- DMs: start a 1:1 DM thread from Chat
-- Admin: analytics dashboard + read-only SQL console
-
 ## Key endpoints
 - Auth: `POST /api/auth/signup`, `POST /api/auth/login`, `POST /api/auth/refresh`, `POST /api/auth/logout`
 - Me: `GET /api/me`, `PATCH /api/me`, `DELETE /api/me`
@@ -54,7 +54,6 @@ Demo-ready local social app with auth, feed/posts/likes/comments, friends, notif
 - Posts: `GET /api/posts/feed`, `POST /api/posts`, `PUT /api/posts/:id`, `DELETE /api/posts/:id`, `POST /api/posts/:id/like`
 - Post detail: `GET /api/posts/:id`
 - Comments: `GET /api/comments/post/:postId`, `POST /api/comments/post/:postId`
-- Chat: `GET /api/chat/groups/public`, `GET /api/chat/groups/mine`, `GET /api/chat/groups/invites`, `POST /api/chat/groups`, `POST /api/chat/groups/:id/join`, `POST /api/chat/groups/:id/leave`, `POST /api/chat/groups/:id/invite`, `GET /api/chat/groups/:id/messages`, `POST /api/chat/dm/:username`
 - Admin (admin-only): `GET /api/admin/analytics`, `POST /api/admin/sql`
 
 ## Profile editing
@@ -64,7 +63,6 @@ Demo-ready local social app with auth, feed/posts/likes/comments, friends, notif
 
 ## Realtime
 - Socket.IO server emits `event` messages for post/like/comment changes.
-- Socket.IO server emits `chat:event` (e.g. `chat_message`) to the group room once joined.
 
 ## Notes
 - Server runs SQLite migrations automatically on startup (`server/src/db/migrate.ts`).

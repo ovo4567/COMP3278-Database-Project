@@ -10,13 +10,13 @@ export const postsRouter = Router();
 const createPostSchema = z.object({
   text: z.string().min(1).max(5000),
   imageUrl: z.string().url().max(500).optional().or(z.literal('')),
-  visibility: z.enum(['public', 'friends', 'private']).optional(),
+  visibility: z.enum(['public', 'friends']).optional(),
 });
 
 const editPostSchema = z.object({
   text: z.string().min(1).max(5000).optional(),
   imageUrl: z.string().url().max(500).optional().or(z.literal('')),
-  visibility: z.enum(['public', 'friends', 'private']).optional(),
+  visibility: z.enum(['public', 'friends']).optional(),
 });
 
 postsRouter.post('/', requireAuth, async (req, res) => {

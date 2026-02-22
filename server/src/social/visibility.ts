@@ -1,6 +1,6 @@
 import { getDb } from '../db/sqlite.js';
 
-export type PostVisibility = 'public' | 'friends' | 'private';
+export type PostVisibility = 'public' | 'friends';
 
 type PostRow = { user_id: number; visibility: PostVisibility };
 
@@ -17,7 +17,6 @@ export const canViewPostByOwner = async (viewerId: number | null, ownerUserId: n
   if (visibility === 'public') return true;
   if (!viewerId) return false;
   if (viewerId === ownerUserId) return true;
-  if (visibility === 'private') return false;
   return areFriends(viewerId, ownerUserId);
 };
 

@@ -19,16 +19,11 @@ export function NavBar(props: { user: User | null; unreadNotifications: number; 
   };
 
   const navItemClass = ({ isActive }: { isActive: boolean }) =>
-    `ui-motion text-sm ${isActive ? 'font-medium' : ''}`;
+    `ui-motion rounded-md px-2 py-1 text-sm hover:bg-gray-900/5 dark:hover:bg-white/5 ${isActive ? 'font-medium' : ''}`;
 
   const navItemStyle = ({ isActive }: { isActive: boolean }) =>
     isActive
-      ? {
-          color: 'rgb(var(--ui-accent-rgb))',
-          textDecoration: 'underline',
-          textDecorationThickness: '2px',
-          textUnderlineOffset: '6px',
-        }
+      ? { color: 'rgb(var(--ui-accent-rgb))', backgroundColor: 'rgb(var(--ui-accent-rgb) / 0.10)' }
       : { color: 'inherit' };
 
   return (
@@ -37,7 +32,7 @@ export function NavBar(props: { user: User | null; unreadNotifications: number; 
       style={{ borderColor: 'rgb(var(--ui-border-rgb) / 0.6)', backgroundColor: 'rgb(var(--ui-surface-rgb) / 0.78)' }}
     >
       <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
-        <Link to="/" className="ui-title text-lg" style={{ color: 'rgb(var(--ui-accent-rgb))', letterSpacing: '-0.01em' }}>
+        <Link to="/" className="ui-title ui-brand text-lg" style={{ letterSpacing: '-0.01em' }}>
           Social
         </Link>
 
@@ -53,7 +48,7 @@ export function NavBar(props: { user: User | null; unreadNotifications: number; 
             aria-label="Toggle dark mode"
             title="Toggle dark mode"
           >
-            {theme === 'dark' ? 'Dark' : 'Light'}
+            Theme: {theme === 'dark' ? 'Dark' : 'Light'}
           </button>
 
           {props.user ? (
@@ -70,9 +65,6 @@ export function NavBar(props: { user: User | null; unreadNotifications: number; 
                     {props.unreadNotifications}
                   </span>
                 ) : null}
-              </NavLink>
-              <NavLink to="/chat" className={navItemClass} style={navItemStyle}>
-                Chat
               </NavLink>
               <NavLink to={`/u/${props.user.username}`} className={navItemClass} style={navItemStyle}>
                 @{props.user.username}

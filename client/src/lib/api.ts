@@ -3,10 +3,6 @@ import { tokenStorage } from './storage';
 import type {
   AdminAnalytics,
   AdminSqlResult,
-  ChatGroup,
-  ChatInvite,
-  ChatMember,
-  ChatMessage,
   Comment,
   FeedPost,
   PostDetail,
@@ -125,7 +121,7 @@ export const usersApi = {
 };
 
 export const postsApi = {
-  async create(input: { text: string; imageUrl?: string; visibility?: 'public' | 'friends' | 'private' }): Promise<{ id: number }> {
+  async create(input: { text: string; imageUrl?: string; visibility?: 'public' | 'friends' }): Promise<{ id: number }> {
     return apiFetch('/api/posts', { method: 'POST', body: input, auth: true });
   },
 
@@ -149,7 +145,7 @@ export const postsApi = {
     return apiFetch(`/api/posts/${postId}`);
   },
 
-  async edit(postId: number, input: { text?: string; imageUrl?: string | null; visibility?: 'public' | 'friends' | 'private' }): Promise<{ ok: true }> {
+  async edit(postId: number, input: { text?: string; imageUrl?: string | null; visibility?: 'public' | 'friends' }): Promise<{ ok: true }> {
     return apiFetch(`/api/posts/${postId}`, { method: 'PUT', body: input, auth: true });
   },
 
@@ -172,63 +168,6 @@ export const commentsApi = {
 
   async create(postId: number, input: { text: string }): Promise<{ id: number }> {
     return apiFetch(`/api/comments/post/${postId}`, { method: 'POST', body: input, auth: true });
-  },
-};
-
-export const chatApi = {
-  async listPublicGroups(): Promise<{ items: ChatGroup[] }> {
-    return apiFetch('/api/chat/groups/public');
-  },
-
-  async listMyGroups(): Promise<{ items: ChatGroup[] }> {
-    return apiFetch('/api/chat/groups/mine', { auth: true });
-  },
-
-  async listInvites(): Promise<{ items: ChatInvite[] }> {
-    return apiFetch('/api/chat/groups/invites', { auth: true });
-  },
-
-  async createGroup(input: { name: string; description?: string; isPrivate?: boolean }): Promise<{ id: number }> {
-    return apiFetch('/api/chat/groups', { method: 'POST', body: input, auth: true });
-  },
-
-  async joinGroup(groupId: number): Promise<{ ok: true }> {
-    return apiFetch(`/api/chat/groups/${groupId}/join`, { method: 'POST', auth: true });
-  },
-
-  async leaveGroup(groupId: number): Promise<{ ok: true }> {
-    return apiFetch(`/api/chat/groups/${groupId}/leave`, { method: 'POST', auth: true });
-  },
-
-  async inviteToGroup(groupId: number, username: string): Promise<{ ok: true }> {
-    return apiFetch(`/api/chat/groups/${groupId}/invite`, { method: 'POST', body: { username }, auth: true });
-  },
-
-  async listMessages(groupId: number, params: { limit?: number; cursor?: number | null }): Promise<{ items: ChatMessage[]; nextCursor: number | null }> {
-    const q = new URLSearchParams();
-    q.set('limit', String(params.limit ?? 30));
-    if (params.cursor) q.set('cursor', String(params.cursor));
-    return apiFetch(`/api/chat/groups/${groupId}/messages?${q.toString()}`, { auth: true });
-  },
-
-  async startDm(username: string): Promise<{ groupId: number }> {
-    return apiFetch(`/api/chat/dm/${encodeURIComponent(username)}`, { method: 'POST', auth: true });
-  },
-
-  async listMembers(groupId: number): Promise<{ items: ChatMember[] }> {
-    return apiFetch(`/api/chat/groups/${groupId}/members`, { auth: true });
-  },
-
-  async promoteMember(groupId: number, userId: number): Promise<{ ok: true }> {
-    return apiFetch(`/api/chat/groups/${groupId}/members/${userId}/promote`, { method: 'POST', auth: true });
-  },
-
-  async demoteMember(groupId: number, userId: number): Promise<{ ok: true }> {
-    return apiFetch(`/api/chat/groups/${groupId}/members/${userId}/demote`, { method: 'POST', auth: true });
-  },
-
-  async removeMember(groupId: number, userId: number): Promise<{ ok: true }> {
-    return apiFetch(`/api/chat/groups/${groupId}/members/${userId}`, { method: 'DELETE', auth: true });
   },
 };
 

@@ -12,7 +12,6 @@ import { authRouter } from './routes/auth.js';
 import { postsRouter } from './routes/posts.js';
 import { commentsRouter } from './routes/comments.js';
 import { meRouter } from './routes/me.js';
-import { chatRouter } from './routes/chat.js';
 import { usersRouter } from './routes/users.js';
 import { adminRouter } from './routes/admin.js';
 import { searchRouter } from './routes/search.js';
@@ -39,7 +38,6 @@ const main = async () => {
   app.use('/api/users', usersRouter);
   app.use('/api/posts', postsRouter);
   app.use('/api/comments', commentsRouter);
-  app.use('/api/chat', chatRouter);
   app.use('/api/admin', adminRouter);
   app.use('/api/search', searchRouter);
   app.use('/api/friends', friendsRouter);

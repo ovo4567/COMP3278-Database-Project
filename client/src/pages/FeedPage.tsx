@@ -65,7 +65,7 @@ export function FeedPage(props: { currentUser: User | null }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sort, scope, nextCursor]);
 
-  const submitPost = async (input: { text: string; imageUrl?: string; visibility?: 'public' | 'friends' | 'private' }) => {
+  const submitPost = async (input: { text: string; imageUrl?: string; visibility?: 'public' | 'friends' }) => {
     await postsApi.create(input);
     await load(true);
   };

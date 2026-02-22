@@ -193,10 +193,6 @@ export function AdminPage({ currentUser }: Props) {
     () => (data ? data.engagement.series.map((p) => ({ day: p.day, value: p.comments })) : []),
     [data],
   );
-  const seriesChatMessages: SeriesPoint[] = useMemo(
-    () => (data ? data.chat.series.map((p) => ({ day: p.day, value: p.messages })) : []),
-    [data],
-  );
   const seriesFriendRequests: SeriesPoint[] = useMemo(
     () => (data ? data.friends.series.map((p) => ({ day: p.day, value: p.requests })) : []),
     [data],
@@ -273,9 +269,6 @@ export function AdminPage({ currentUser }: Props) {
                     for (const p of data.engagement.series) {
                       lines.push(`engagement,${p.day},likes,${p.likes}`);
                       lines.push(`engagement,${p.day},comments,${p.comments}`);
-                    }
-                    for (const p of data.chat.series) {
-                      lines.push(`chat,${p.day},messages,${p.messages}`);
                     }
                     for (const p of data.friends.series) {
                       lines.push(`friends,${p.day},requests,${p.requests}`);
@@ -392,24 +385,6 @@ export function AdminPage({ currentUser }: Props) {
               }
             />
             <MetricTile
-              label="Chat"
-              value={data.chat.totalMessages}
-              sub={
-                <>
-                  Images <span className="ui-system">{data.chat.imageMessages}</span>
-                </>
-              }
-              right={
-                <>
-                  <div className="text-xs text-gray-600 dark:text-gray-400">Messages/day (latest)</div>
-                  <div className="mt-1 ui-system text-sm tabular-nums">{lastValue(seriesChatMessages)}</div>
-                  <div className="mt-1">
-                    <Sparkline points={seriesChatMessages} />
-                  </div>
-                </>
-              }
-            />
-            <MetricTile
               label="This window"
               value={<span className="ui-system">{days} days</span>}
               sub={
@@ -451,67 +426,6 @@ export function AdminPage({ currentUser }: Props) {
                       <div className="ui-system tabular-nums">{b.count}</div>
                     </div>
                   ))}
-                </div>
-              </div>
-
-              <div className="ui-panel ui-panel-soft p-3">
-                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">Chat leaderboards</div>
-                <div className="mt-2 grid gap-3">
-                  <div className="ui-panel ui-panel-soft p-3">
-                    <div className="text-sm font-semibold">Most active chat groups</div>
-                    <div className="mt-2 overflow-x-auto">
-                      <table className="w-full text-left text-sm">
-                        <thead className="text-xs text-gray-600 dark:text-gray-400">
-                          <tr>
-                            <th className="py-1 pr-2">Group</th>
-                            <th className="py-1 pr-2">Messages</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {data.chat.mostActiveGroups.map((g) => (
-                            <tr key={g.id} className="border-t dark:border-gray-800">
-                              <td className="py-2 pr-2">
-                                <span className="text-gray-900 dark:text-gray-100">{g.name}</span>
-                                {g.isPrivate ? (
-                                  <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">Private</span>
-                                ) : (
-                                  <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">Public</span>
-                                )}
-                              </td>
-                              <td className="py-2 pr-2 ui-system tabular-nums">{g.messageCount}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  <div className="ui-panel ui-panel-soft p-3">
-                    <div className="text-sm font-semibold">Most active chatters</div>
-                    <div className="mt-2 overflow-x-auto">
-                      <table className="w-full text-left text-sm">
-                        <thead className="text-xs text-gray-600 dark:text-gray-400">
-                          <tr>
-                            <th className="py-1 pr-2">User</th>
-                            <th className="py-1 pr-2">Messages</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {data.chat.mostActiveChatters.map((u) => (
-                            <tr key={u.username} className="border-t dark:border-gray-800">
-                              <td className="py-2 pr-2">
-                                <Link className="hover:underline" to={`/u/${encodeURIComponent(u.username)}`}>
-                                  @{u.username}
-                                </Link>
-                                {u.displayName ? <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">{u.displayName}</span> : null}
-                              </td>
-                              <td className="py-2 pr-2 ui-system tabular-nums">{u.messageCount}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>

@@ -87,14 +87,12 @@ adminRouter.get('/analytics', async (req, res) => {
     db.get<{ c: number }>('SELECT COUNT(*) AS c FROM posts'),
     db.get<{ c: number }>('SELECT COUNT(*) AS c FROM likes'),
     db.get<{ c: number }>('SELECT COUNT(*) AS c FROM comments'),
-    db.get<{ c: number }>('SELECT COUNT(*) AS c FROM chat_messages'),
   ]);
 
   const totalUsers = totals[0]?.c ?? 0;
   const totalPosts = totals[1]?.c ?? 0;
   const totalLikes = totals[2]?.c ?? 0;
   const totalComments = totals[3]?.c ?? 0;
-  const totalChatMessages = totals[4]?.c ?? 0;
 
   const hasFriendships = Boolean(
     await db.get<{ name: string }>(
@@ -114,7 +112,6 @@ adminRouter.get('/analytics', async (req, res) => {
       new_posts: number;
       likes: number;
       comments: number;
-      chat_messages: number;
     }[]
   >(
     `WITH RECURSIVE days(d) AS (
@@ -136,8 +133,7 @@ adminRouter.get('/analytics', async (req, res) => {
        ) AS active_users,
        (SELECT COUNT(*) FROM posts p WHERE date(p.created_at) = d) AS new_posts,
        (SELECT COUNT(*) FROM likes l WHERE date(l.created_at) = d) AS likes,
-       (SELECT COUNT(*) FROM comments c WHERE date(c.created_at) = d) AS comments,
-       (SELECT COUNT(*) FROM chat_messages m WHERE date(m.created_at) = d) AS chat_messages
+       (SELECT COUNT(*) FROM comments c WHERE date(c.created_at) = d) AS comments
      FROM days
      ORDER BY d ASC`,
     `-${days - 1} days`,
@@ -336,32 +332,6 @@ adminRouter.get('/analytics', async (req, res) => {
        END`,
   );
 
-  const mostActiveGroups = await db.all<
-    { id: number; name: string; is_private: 0 | 1; message_count: number }[]
-  >(
-    `SELECT g.id, g.name, g.is_private, COUNT(m.id) AS message_count
-     FROM chat_groups g
-     LEFT JOIN chat_messages m ON m.group_id = g.id
-     GROUP BY g.id
-     ORDER BY message_count DESC
-     LIMIT 10`,
-  );
-
-  const mostActiveChatters = await db.all<
-    { id: number; username: string; display_name: string | null; message_count: number }[]
-  >(
-    `SELECT u.id, u.username, u.display_name, COUNT(m.id) AS message_count
-     FROM chat_messages m
-     JOIN users u ON u.id = m.user_id
-     GROUP BY u.id
-     ORDER BY message_count DESC
-     LIMIT 10`,
-  );
-
-  const imageMessages = (await db.get<{ c: number }>(
-    "SELECT COUNT(*) AS c FROM chat_messages WHERE type = 'image'",
-  ))?.c ?? 0;
-
   const likeToPostRatio = totalPosts > 0 ? totalLikes / totalPosts : 0;
   const commentToPostRatio = totalPosts > 0 ? totalComments / totalPosts : 0;
 
@@ -405,13 +375,6 @@ adminRouter.get('/analytics', async (req, res) => {
       series: series.map((r) => ({ day: r.day, likes: r.likes, comments: r.comments })),
       likeToPostRatio,
       commentToPostRatio,
-    },
-    chat: {
-      totalMessages: totalChatMessages,
-      series: series.map((r) => ({ day: r.day, messages: r.chat_messages })),
-      mostActiveGroups: mostActiveGroups.map((g) => ({ id: g.id, name: g.name, isPrivate: Boolean(g.is_private), messageCount: g.message_count })),
-      mostActiveChatters: mostActiveChatters.map((u) => ({ id: u.id, username: u.username, displayName: u.display_name, messageCount: u.message_count })),
-      imageMessages,
     },
     friends: {
       totalAccepted: totalFriendshipsAccepted,

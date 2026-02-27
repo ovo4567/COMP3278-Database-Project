@@ -1,4 +1,4 @@
-FROM node:18-bookworm-slim AS deps
+FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 
 # sqlite3 may need native build tooling depending on platform/Node ABI.
@@ -11,21 +11,23 @@ COPY server/package.json server/package.json
 COPY client/package.json client/package.json
 RUN npm ci
 
-FROM node:18-bookworm-slim AS build
+FROM node:22-bookworm-slim AS build
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/server/node_modules ./server/node_modules
 COPY package.json package-lock.json ./
 COPY server ./server
 COPY client ./client
 
 RUN npm -w server run build
 
-FROM node:18-bookworm-slim AS runner
+FROM node:22-bookworm-slim AS runner
 ENV NODE_ENV=production
 
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/server/node_modules ./server/node_modules
 COPY package.json package-lock.json ./
 COPY server/package.json server/package.json
 

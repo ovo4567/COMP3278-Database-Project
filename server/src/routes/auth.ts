@@ -11,6 +11,8 @@ import {
 } from '../auth/tokens.js';
 import { config } from '../config.js';
 
+const normalizeUsername = (username: string) => username.toLowerCase();
+
 const signupSchema = z.object({
   username: z.string().min(3).max(32).regex(/^[a-zA-Z0-9_]+$/),
   password: z.string().min(6).max(128),
@@ -35,10 +37,11 @@ authRouter.post('/signup', async (req, res) => {
   const parsed = signupSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
 
-  const { username, password, displayName, status, bio, avatarUrl } = parsed.data;
+  const { username: rawUsername, password, displayName, status, bio, avatarUrl } = parsed.data;
+  const username = normalizeUsername(rawUsername);
   const db = await getDb();
 
-  const existing = await db.get('SELECT id FROM users WHERE username = ?', username);
+  const existing = await db.get('SELECT id FROM users WHERE lower(username) = lower(?)', username);
   if (existing) return res.status(409).json({ error: 'Username already taken' });
 
   const passwordHash = await hashPassword(password);
@@ -92,7 +95,8 @@ authRouter.post('/login', async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
 
-  const { username, password } = parsed.data;
+  const { username: rawUsername, password } = parsed.data;
+  const username = normalizeUsername(rawUsername);
   const db = await getDb();
   const user = await db.get<{
     id: number;
@@ -105,7 +109,7 @@ authRouter.post('/login', async (req, res) => {
     avatar_url: string | null;
     is_banned: 0 | 1;
   }>(
-    'SELECT id, username, password_hash, role, display_name, status_text, bio, avatar_url, is_banned FROM users WHERE username = ?',
+    'SELECT id, username, password_hash, role, display_name, status_text, bio, avatar_url, is_banned FROM users WHERE lower(username) = lower(?)',
     username,
   );
 

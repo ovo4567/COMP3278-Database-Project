@@ -5,7 +5,7 @@ import { optionalAuth, type MaybeAuthedRequest } from '../middleware/auth.js';
 export const usersRouter = Router();
 
 usersRouter.get('/:username', optionalAuth, async (req, res) => {
-  const username = String(req.params.username ?? '');
+  const username = String(req.params.username ?? '').toLowerCase();
   if (!username) return res.status(400).json({ error: 'Invalid username' });
 
   const viewerId = (req as MaybeAuthedRequest).user?.sub ? Number((req as MaybeAuthedRequest).user?.sub) : null;
@@ -29,7 +29,7 @@ usersRouter.get('/:username', optionalAuth, async (req, res) => {
             (SELECT COUNT(*) FROM likes l JOIN posts p2 ON p2.id = l.post_id WHERE p2.user_id = u.id) AS likes_received
             ,(SELECT COUNT(*) FROM friendships f WHERE f.status = 'accepted' AND (f.user_id1 = u.id OR f.user_id2 = u.id)) AS friend_count
      FROM users u
-     WHERE u.username = ?`,
+     WHERE lower(u.username) = lower(?)`,
     username,
   );
 

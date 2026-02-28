@@ -20,7 +20,7 @@ export function SignupPage(props: { onLogin: (user: User) => void }) {
     setLoading(true);
     try {
       const res = await authApi.signup({
-        username: username.trim(),
+        username: username.trim().toLowerCase(),
         password,
         displayName: displayName.trim() ? displayName.trim() : undefined,
         bio: bio.trim() ? bio.trim() : undefined,

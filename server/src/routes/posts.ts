@@ -153,7 +153,7 @@ postsRouter.get('/feed', optionalAuth, async (req, res) => {
 });
 
 postsRouter.get('/user/:username', optionalAuth, async (req, res) => {
-  const username = req.params.username;
+  const username = String(req.params.username ?? '').toLowerCase();
   const limit = Math.min(Number(req.query.limit ?? 20), 50);
   const cursor = req.query.cursor ? String(req.query.cursor) : null;
 
@@ -162,7 +162,7 @@ postsRouter.get('/user/:username', optionalAuth, async (req, res) => {
   const db = await getDb();
   const whereCursor = cursor ? "AND p.created_at < ?" : '';
 
-  const owner = await db.get<{ id: number }>('SELECT id FROM users WHERE username = ?', username);
+  const owner = await db.get<{ id: number }>('SELECT id FROM users WHERE lower(username) = lower(?)', username);
   if (!owner) return res.status(404).json({ error: 'Not found' });
 
   let visibilityWhere = "AND p.visibility = 'public'";

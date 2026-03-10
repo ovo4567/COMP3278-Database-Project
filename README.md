@@ -40,6 +40,7 @@ Core features:
 - By default it resets the database so each run starts from the same state.
 - To keep existing data: `npm -w server run seed:test -- --no-force`
 - Seeded content does not rely on external image URLs (offline-friendly).
+ - The SQLite data directory is created automatically on first run.
 
 ## Scripts
 - Dev (both): `npm run dev`

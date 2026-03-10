@@ -12,16 +12,18 @@ export function PostComposer(props: {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!text.trim()) {
-      setError('Text is required');
+    const nextText = text.trim();
+    const nextImageUrl = imageUrl.trim();
+    if (!nextText && !nextImageUrl) {
+      setError('Add text or an image URL');
       return;
     }
 
     setSaving(true);
     try {
       await props.onSubmit({
-        text: text.trim(),
-        imageUrl: imageUrl.trim() ? imageUrl.trim() : undefined,
+        text: nextText,
+        imageUrl: nextImageUrl ? nextImageUrl : undefined,
         visibility,
       });
       setText('');
@@ -40,7 +42,7 @@ export function PostComposer(props: {
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="What's happening?"
+          placeholder="What's happening? (optional if you add an image)"
           className="ui-textarea"
         />
         <input

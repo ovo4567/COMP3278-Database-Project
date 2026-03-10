@@ -8,13 +8,13 @@ import { areFriends, canViewPostByOwner, type PostVisibility } from '../social/v
 export const postsRouter = Router();
 
 const createPostSchema = z.object({
-  text: z.string().min(1).max(5000),
+  text: z.string().max(5000).optional(),
   imageUrl: z.string().url().max(500).optional().or(z.literal('')),
   visibility: z.enum(['public', 'friends']).optional(),
 });
 
 const editPostSchema = z.object({
-  text: z.string().min(1).max(5000).optional(),
+  text: z.string().max(5000).optional(),
   imageUrl: z.string().url().max(500).optional().or(z.literal('')),
   visibility: z.enum(['public', 'friends']).optional(),
 });
@@ -24,7 +24,9 @@ postsRouter.post('/', requireAuth, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
 
   const userId = Number((req as AuthedRequest).user.sub);
-  const { text, imageUrl } = parsed.data;
+  const text = (parsed.data.text ?? '').trim();
+  const imageUrl = (parsed.data.imageUrl ?? '').trim();
+  if (!text && !imageUrl) return res.status(400).json({ error: 'Post requires text or image' });
   const visibility: PostVisibility = (parsed.data.visibility ?? 'public') as PostVisibility;
 
   const db = await getDb();
@@ -273,11 +275,20 @@ postsRouter.put('/:id', requireAuth, async (req, res) => {
   const role = (req as AuthedRequest).user.role;
 
   const db = await getDb();
-  const post = await db.get<{ user_id: number }>('SELECT user_id FROM posts WHERE id = ?', postId);
+  const post = await db.get<{ user_id: number; text: string; image_url: string | null }>(
+    'SELECT user_id, text, image_url FROM posts WHERE id = ?',
+    postId,
+  );
   if (!post) return res.status(404).json({ error: 'Not found' });
   if (post.user_id !== userId && role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
 
-  const { text, imageUrl } = parsed.data;
+  const nextText = parsed.data.text !== undefined ? parsed.data.text.trim() : post.text;
+  const nextImageUrl =
+    parsed.data.imageUrl !== undefined ? (parsed.data.imageUrl.trim() ? parsed.data.imageUrl.trim() : null) : post.image_url;
+  if (!nextText && !nextImageUrl) return res.status(400).json({ error: 'Post requires text or image' });
+
+  const text = parsed.data.text !== undefined ? parsed.data.text.trim() : undefined;
+  const imageUrl = parsed.data.imageUrl !== undefined ? parsed.data.imageUrl.trim() : undefined;
   const visibility = parsed.data.visibility as PostVisibility | undefined;
   await db.run(
     "UPDATE posts SET text = COALESCE(?, text), image_url = COALESCE(?, image_url), visibility = COALESCE(?, visibility), updated_at = datetime('now') WHERE id = ?",

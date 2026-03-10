@@ -781,7 +781,9 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
             <div className="ui-muted text-xs">
               <Timestamp value={p.createdAt} />
             </div>
-            <div className="mt-1 whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100">{p.text}</div>
+            {p.text ? (
+              <div className="mt-1 whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100">{p.text}</div>
+            ) : null}
             {p.imageUrl ? (
               <div className="mt-2">
                 <img src={p.imageUrl} alt="Post" className="max-h-96 w-full rounded-md border object-contain" loading="lazy" />

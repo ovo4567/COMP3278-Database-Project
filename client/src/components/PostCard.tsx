@@ -30,17 +30,23 @@ export function PostCard(props: {
 
   const save = async () => {
     setError(null);
+    const nextText = text.trim();
+    const nextImageUrl = imageUrl.trim();
+    if (!nextText && !nextImageUrl) {
+      setError('Add text or an image URL');
+      return;
+    }
     try {
       await postsApi.edit(props.post.id, {
-        text: text.trim(),
-        imageUrl: imageUrl.trim() ? imageUrl.trim() : null,
+        text: nextText,
+        imageUrl: nextImageUrl ? nextImageUrl : null,
         visibility,
       });
       setEditing(false);
       props.onChange({
         ...props.post,
-        text: text.trim(),
-        imageUrl: imageUrl.trim() ? imageUrl.trim() : null,
+        text: nextText,
+        imageUrl: nextImageUrl ? nextImageUrl : null,
         visibility,
       });
     } catch (err) {
@@ -125,7 +131,9 @@ export function PostCard(props: {
               <span className="ui-badge ui-system">Friends</span>
             ) : null}
           </div>
-          <div className="mt-2 whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100">{props.post.text}</div>
+          {props.post.text ? (
+            <div className="mt-2 whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100">{props.post.text}</div>
+          ) : null}
           {props.post.imageUrl ? (
             <div className="mt-2">
               <img

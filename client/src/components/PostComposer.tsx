@@ -46,8 +46,11 @@ export function PostComposer(props: {
   };
 
   return (
-    <form onSubmit={submit} className="ui-hero ui-card-hover">
-      <div className="flex items-start gap-4">
+    <form onSubmit={submit} className="ui-hero ui-card-hover relative overflow-hidden">
+      <div className="pointer-events-none absolute right-0 top-0 h-28 w-28 rounded-full bg-[rgb(var(--ui-accent-rgb)_/_0.16)] blur-3xl" />
+      <div className="pointer-events-none absolute bottom-0 left-10 h-24 w-24 rounded-full bg-[rgb(var(--ui-accent-2-rgb)_/_0.14)] blur-3xl" />
+
+      <div className="relative flex items-start gap-4">
         {props.currentUser?.avatarUrl ? (
           <img src={props.currentUser.avatarUrl} alt="Your avatar" className="h-12 w-12 rounded-2xl border object-cover" loading="lazy" />
         ) : (
@@ -58,10 +61,13 @@ export function PostComposer(props: {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="ui-kicker">Create post</div>
-              <div className="mt-1 text-base font-semibold text-gray-900 dark:text-gray-100">Share a quick update with your circle</div>
-              <div className="ui-muted mt-1 text-sm">Text, image links, and audience control in one place.</div>
+              <div className="mt-1 text-lg font-semibold text-gray-900 dark:text-gray-100">Drop something fresh into the room</div>
+              <div className="ui-muted mt-1 text-sm">A glassy composer for quick thoughts, photo links, and audience control.</div>
             </div>
-            <div className="ui-badge ui-system">{trimmedText.length} chars</div>
+            <div className="flex items-center gap-2 rounded-full border border-white/30 bg-white/40 px-3 py-2 text-xs shadow-[0_16px_30px_-24px_rgb(var(--ui-shadow-rgb)_/_0.45)] backdrop-blur-xl dark:bg-white/10">
+              <span className="h-2 w-2 rounded-full bg-[rgb(var(--ui-accent-rgb))] shadow-[0_0_12px_rgb(var(--ui-accent-rgb)_/_0.65)]" />
+              <span className="ui-system">{trimmedText.length} chars</span>
+            </div>
           </div>
 
           <div className="mt-4 grid gap-3">
@@ -69,21 +75,21 @@ export function PostComposer(props: {
               value={text}
               onChange={(e) => setText(e.target.value)}
               placeholder="What are you working on, seeing, or thinking about?"
-              className="ui-textarea min-h-32"
+              className="ui-textarea min-h-36 shadow-[0_24px_44px_-34px_rgb(var(--ui-shadow-rgb)_/_0.42)]"
             />
             <input
               value={imageUrl}
               onChange={(e) => setImageUrl(e.target.value)}
-              placeholder="Optional image URL"
+              placeholder="Drop an image URL to make the card pop"
               className="ui-input"
             />
 
             {trimmedImageUrl ? (
-              <div className="overflow-hidden rounded-2xl border border-[rgb(var(--ui-border-rgb)_/_0.65)] bg-white/40 p-2 dark:bg-white/5">
+              <div className="overflow-hidden rounded-[24px] border border-white/25 bg-white/35 p-2 shadow-[0_20px_44px_-30px_rgb(var(--ui-shadow-rgb)_/_0.48)] backdrop-blur-xl dark:bg-white/10">
                 <img
                   src={trimmedImageUrl}
                   alt="Preview"
-                  className="max-h-72 w-full rounded-xl object-contain ui-appear-up"
+                  className="max-h-72 w-full rounded-[18px] object-contain ui-appear-up"
                   loading="lazy"
                 />
               </div>

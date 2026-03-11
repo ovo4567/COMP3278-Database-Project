@@ -57,7 +57,7 @@ postsRouter.get('/feed', optionalAuth, async (req, res) => {
   const orderBy = sort === 'popular' ? 'p.like_count DESC, p.created_at DESC' : 'p.created_at DESC';
 
   // Cursor is ISO datetime of last post in previous batch.
-  const whereCursor = cursor ? "WHERE p.created_at < ?" : '';
+  const cursorClause = cursor ? 'AND p.created_at < ?' : '';
   const params = cursor ? [cursor, limit + 1] : [limit + 1];
 
   const rows = await db.all<{
@@ -93,7 +93,7 @@ postsRouter.get('/feed', optionalAuth, async (req, res) => {
                )
              )
            )
-           ${whereCursor}
+             ${cursorClause}
            ORDER BY ${orderBy}
            LIMIT ?`
         : `SELECT p.id, p.text, p.image_url, p.visibility, p.like_count, p.created_at, p.updated_at,
@@ -115,7 +115,7 @@ postsRouter.get('/feed', optionalAuth, async (req, res) => {
              )
            )
          )
-         ${whereCursor}
+         ${cursorClause}
          ORDER BY ${orderBy}
          LIMIT ?`
       : `SELECT p.id, p.text, p.image_url, p.visibility, p.like_count, p.created_at, p.updated_at,
@@ -124,7 +124,7 @@ postsRouter.get('/feed', optionalAuth, async (req, res) => {
          FROM posts p
          JOIN users u ON u.id = p.user_id
          WHERE p.visibility = 'public'
-         ${whereCursor}
+         ${cursorClause}
          ORDER BY ${orderBy}
          LIMIT ?`,
     ...(maybeUserId

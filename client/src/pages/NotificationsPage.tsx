@@ -280,7 +280,7 @@ export function NotificationsPage(props: {
           className="ui-btn px-4 py-2 disabled:opacity-50"
           type="button"
         >
-          {nextCursor ? (loading ? 'Loading…' : 'Load more') : 'No more'}
+          {nextCursor ? (loading ? 'Loading…' : 'Load more notifications') : 'No more notifications'}
         </button>
       </div>
     </div>

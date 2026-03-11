@@ -80,12 +80,15 @@ export function PostCard(props: {
   };
 
   return (
-    <article className="ui-panel ui-panel-soft ui-card-hover overflow-hidden rounded-2xl p-4">
+    <article className="group ui-panel ui-panel-soft ui-card-hover relative overflow-hidden rounded-[30px] p-4">
+      <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-white/90 to-transparent" />
+      <div className="pointer-events-none absolute -right-10 top-10 h-24 w-24 rounded-full bg-[rgb(var(--ui-accent-rgb)_/_0.12)] blur-3xl" />
+
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex items-start gap-3">
-          <Link to={`/u/${encodeURIComponent(props.post.user.username)}`} className="ui-motion rounded-2xl hover:scale-[1.03]">
+          <Link to={`/u/${encodeURIComponent(props.post.user.username)}`} className="ui-motion rounded-2xl hover:scale-[1.04]">
             {props.post.user.avatarUrl ? (
-              <img src={props.post.user.avatarUrl} alt="Avatar" className="h-12 w-12 rounded-2xl border object-cover" loading="lazy" />
+              <img src={props.post.user.avatarUrl} alt="Avatar" className="h-12 w-12 rounded-2xl border border-white/40 object-cover shadow-[0_16px_30px_-24px_rgb(var(--ui-shadow-rgb)_/_0.45)]" loading="lazy" />
             ) : (
               <div className="ui-avatar h-12 w-12 text-xs uppercase">{initials}</div>
             )}
@@ -112,7 +115,7 @@ export function PostCard(props: {
         </div>
 
         {canEdit ? (
-          <div className="flex shrink-0 flex-wrap gap-2">
+          <div className="flex shrink-0 flex-wrap gap-2 rounded-full border border-white/20 bg-white/30 px-2 py-1 backdrop-blur-xl dark:bg-white/10">
             <button onClick={() => setEditing((value) => !value)} className="ui-btn rounded-full px-3 py-1.5 text-xs" type="button">
               {editing ? 'Cancel' : 'Edit'}
             </button>
@@ -129,7 +132,7 @@ export function PostCard(props: {
       </div>
 
       {editing ? (
-        <div className="mt-4 space-y-3 rounded-2xl border border-[rgb(var(--ui-border-rgb)_/_0.68)] bg-white/30 p-3 dark:bg-white/5">
+        <div className="mt-4 space-y-3 rounded-[24px] border border-white/25 bg-white/30 p-3 backdrop-blur-xl dark:bg-white/10">
           <textarea value={text} onChange={(e) => setText(e.target.value)} className="ui-textarea min-h-24" />
           <input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="Optional image URL" className="ui-input" />
           <div>
@@ -152,13 +155,17 @@ export function PostCard(props: {
         </div>
       ) : (
         <>
-          {props.post.text ? <div className="mt-4 whitespace-pre-wrap text-sm leading-6 text-gray-900 dark:text-gray-100">{props.post.text}</div> : null}
+          {props.post.text ? (
+            <div className="mt-4 whitespace-pre-wrap rounded-[22px] bg-white/30 px-4 py-3 text-sm leading-6 text-gray-900 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.35)] backdrop-blur-sm dark:bg-white/5 dark:text-gray-100">
+              {props.post.text}
+            </div>
+          ) : null}
           {props.post.imageUrl ? (
-            <div className="mt-4 overflow-hidden rounded-2xl border border-[rgb(var(--ui-border-rgb)_/_0.65)] bg-black/[0.03] dark:bg-white/[0.03]">
+            <div className="mt-4 overflow-hidden rounded-[26px] border border-white/25 bg-black/[0.03] shadow-[0_24px_44px_-30px_rgb(var(--ui-shadow-rgb)_/_0.5)] dark:bg-white/[0.03]">
               <img
                 src={props.post.imageUrl}
                 alt="Post"
-                className="max-h-[32rem] w-full cursor-zoom-in object-contain ui-motion hover:scale-[1.01]"
+                className="max-h-[32rem] w-full cursor-zoom-in object-contain ui-motion group-hover:scale-[1.01]"
                 loading="lazy"
                 onClick={() => setLightboxOpen(true)}
               />
@@ -193,7 +200,7 @@ export function PostCard(props: {
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => void like()}
-            className="ui-btn rounded-full px-4 py-2"
+            className={`ui-btn rounded-full px-4 py-2 ${props.post.likedByMe ? 'ui-btn-primary' : ''}`}
             disabled={busyAction === 'like' || !props.currentUser}
             type="button"
             title={props.currentUser ? 'Toggle like' : 'Login to like posts'}

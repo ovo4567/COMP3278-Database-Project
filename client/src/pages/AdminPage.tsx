@@ -8,123 +8,321 @@ type Props = {
   currentUser: User | null;
 };
 
-type SeriesPoint = { day: string; value: number };
+type SeriesPoint = {
+  day: string;
+  value: number;
+};
 
-const lastValue = (points: SeriesPoint[]): number => (points.length ? points[points.length - 1]!.value : 0);
+const formatNumber = (value: number) => new Intl.NumberFormat('en-US').format(value);
+const formatDecimal = (value: number) => value.toFixed(2);
+const formatPercent = (value: number) => `${(value * 100).toFixed(1)}%`;
+const formatDay = (value: string) =>
+  new Date(`${value}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+const lastValue = (points: SeriesPoint[]) => (points.length ? points[points.length - 1]!.value : 0);
 
-function MetricTile(props: {
+function DashboardStat(props: {
   label: string;
   value: ReactNode;
-  sub?: ReactNode;
-  right?: ReactNode;
+  meta?: ReactNode;
+  tone?: 'pink' | 'aqua' | 'amber' | 'neutral';
 }) {
+  const toneClass =
+    props.tone === 'aqua'
+      ? 'from-cyan-400/30 via-cyan-300/10 to-transparent'
+      : props.tone === 'amber'
+        ? 'from-amber-300/30 via-orange-200/10 to-transparent'
+        : props.tone === 'pink'
+          ? 'from-pink-400/30 via-rose-200/10 to-transparent'
+          : 'from-white/30 via-white/5 to-transparent';
+
   return (
-    <div className="ui-panel ui-panel-soft p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-xs text-gray-600 dark:text-gray-400">{props.label}</div>
-          <div className="mt-1 text-lg font-semibold tabular-nums text-gray-900 dark:text-gray-100">{props.value}</div>
-          {props.sub ? <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">{props.sub}</div> : null}
-        </div>
-        {props.right ? <div className="w-40 shrink-0 text-gray-800 dark:text-gray-200">{props.right}</div> : null}
+    <div className="ui-panel ui-panel-soft relative overflow-hidden rounded-[28px] p-5">
+      <div className={`pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-br ${toneClass}`} />
+      <div className="relative">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-gray-500 dark:text-gray-400">{props.label}</div>
+        <div className="mt-3 text-3xl font-bold tracking-tight text-gray-950 dark:text-white">{props.value}</div>
+        {props.meta ? <div className="mt-2 text-sm text-gray-600 dark:text-gray-300">{props.meta}</div> : null}
       </div>
     </div>
   );
 }
 
-function Sparkline(props: { points: SeriesPoint[]; height?: number }) {
-  const height = props.height ?? 40;
-  const width = 260;
-
-  const max = Math.max(...props.points.map((p) => p.value), 0);
-  const min = Math.min(...props.points.map((p) => p.value), 0);
+function MiniAreaChart(props: { points: SeriesPoint[]; colorClass: string }) {
+  const width = 320;
+  const height = 120;
+  const values = props.points.map((point) => point.value);
+  const max = Math.max(...values, 0);
+  const min = Math.min(...values, 0);
   const range = Math.max(1, max - min);
 
-  const path = useMemo(() => {
-    if (props.points.length === 0) return '';
+  const line = useMemo(() => {
+    if (!props.points.length) return '';
+
     return props.points
-      .map((p, i) => {
-        const x = props.points.length === 1 ? 0 : (i / (props.points.length - 1)) * width;
-        const y = height - ((p.value - min) / range) * height;
-        return `${i === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
+      .map((point, index) => {
+        const x = props.points.length === 1 ? width / 2 : (index / (props.points.length - 1)) * width;
+        const y = height - ((point.value - min) / range) * (height - 12) - 6;
+        return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
       })
       .join(' ');
-  }, [props.points, height, min, range]);
+  }, [height, min, props.points, range]);
+
+  const area = useMemo(() => {
+    if (!line) return '';
+    return `${line} L ${width} ${height} L 0 ${height} Z`;
+  }, [height, line, width]);
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="block h-auto w-full" preserveAspectRatio="none">
-      <path d={path} fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-800 dark:text-gray-200" />
+    <svg viewBox={`0 0 ${width} ${height}`} className="block h-32 w-full overflow-visible" preserveAspectRatio="none">
+      <path d={area} fill="currentColor" opacity="0.14" className={props.colorClass} />
+      <path d={line} fill="none" stroke="currentColor" strokeWidth="3" className={props.colorClass} strokeLinecap="round" />
     </svg>
   );
 }
 
-function TopUserTable(props: { title: string; rows: Array<{ username: string; displayName: string | null; value: number }>; valueLabel: string }) {
+function TrendCard(props: {
+  title: string;
+  subtitle: string;
+  value: string;
+  points: SeriesPoint[];
+  colorClass: string;
+}) {
   return (
-    <div className="ui-panel ui-panel-soft p-3">
-      <div className="text-sm font-semibold">{props.title}</div>
-      <div className="mt-2 overflow-x-auto">
-        <table className="w-full text-left text-sm">
-          <thead className="text-xs text-gray-600 dark:text-gray-400">
-            <tr>
-              <th className="py-1 pr-2">User</th>
-              <th className="py-1 pr-2">{props.valueLabel}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {props.rows.map((r) => (
-              <tr key={r.username} className="border-t dark:border-gray-800">
-                <td className="py-2 pr-2">
-                  <Link className="hover:underline" to={`/u/${encodeURIComponent(r.username)}`}>
-                    @{r.username}
-                  </Link>
-                  {r.displayName ? <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">{r.displayName}</span> : null}
-                </td>
-                <td className="py-2 pr-2 tabular-nums">{r.value}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div className="ui-panel ui-panel-soft rounded-[28px] p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{props.title}</div>
+          <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">{props.subtitle}</div>
+        </div>
+        <div className="text-right">
+          <div className="text-2xl font-bold text-gray-950 dark:text-white">{props.value}</div>
+          <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">Latest day</div>
+        </div>
+      </div>
+      <div className="mt-4">
+        <MiniAreaChart points={props.points} colorClass={props.colorClass} />
+      </div>
+      <div className="mt-3 flex justify-between text-[11px] uppercase tracking-[0.18em] text-gray-400 dark:text-gray-500">
+        <span>{props.points[0] ? formatDay(props.points[0].day) : 'Start'}</span>
+        <span>{props.points[props.points.length - 1] ? formatDay(props.points[props.points.length - 1]!.day) : 'Now'}</span>
       </div>
     </div>
   );
 }
 
-function TopPostTable(props: { title: string; rows: Array<{ id: number; username: string; text: string; createdAt: string; value: number }>; valueLabel: string }) {
-  const snippet = (t: string) => (t.length > 120 ? `${t.slice(0, 120)}…` : t);
+function RankingList(props: {
+  title: string;
+  subtitle: string;
+  rows: Array<{ username: string; displayName: string | null; value: number }>;
+  suffix: string;
+}) {
+  const maxValue = Math.max(...props.rows.map((row) => row.value), 1);
 
   return (
-    <div className="ui-panel ui-panel-soft p-3">
-      <div className="text-sm font-semibold">{props.title}</div>
-      <div className="mt-2 overflow-x-auto">
-        <table className="w-full text-left text-sm">
-          <thead className="text-xs text-gray-600 dark:text-gray-400">
-            <tr>
-              <th className="py-1 pr-2">Post</th>
-              <th className="py-1 pr-2">{props.valueLabel}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {props.rows.map((r) => (
-              <tr key={r.id} className="border-t dark:border-gray-800">
-                <td className="py-2 pr-2">
-                  <div className="text-xs text-gray-500 dark:text-gray-400">
-                    <Link className="hover:underline" to={`/u/${encodeURIComponent(r.username)}`}>
-                      @{r.username}
-                    </Link>
-                    <span className="mx-2">·</span>
-                    <Timestamp value={r.createdAt} />
-                    <span className="mx-2">·</span>
-                    <Link className="hover:underline" to={`/p/${r.id}`}>
-                      View
-                    </Link>
-                  </div>
-                  <div className="mt-1 whitespace-pre-wrap">{snippet(r.text)}</div>
-                </td>
-                <td className="py-2 pr-2 tabular-nums">{r.value}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div className="ui-panel ui-panel-soft rounded-[28px] p-5">
+      <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{props.title}</div>
+      <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">{props.subtitle}</div>
+      <div className="mt-4 space-y-3">
+        {props.rows.map((row, index) => (
+          <div key={`${row.username}-${index}`} className="rounded-[22px] border border-white/25 bg-white/30 p-3 backdrop-blur-xl dark:bg-white/5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <Link to={`/u/${encodeURIComponent(row.username)}`} className="truncate text-sm font-semibold text-gray-900 hover:underline dark:text-white">
+                  @{row.username}
+                </Link>
+                <div className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">{row.displayName ?? 'No display name set'}</div>
+              </div>
+              <div className="text-right">
+                <div className="text-lg font-bold text-gray-950 dark:text-white">{formatNumber(row.value)}</div>
+                <div className="text-[11px] uppercase tracking-[0.18em] text-gray-400 dark:text-gray-500">{props.suffix}</div>
+              </div>
+            </div>
+            <div className="mt-3 h-2 rounded-full bg-white/30 dark:bg-white/10">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-pink-500 via-orange-300 to-cyan-400"
+                style={{ width: `${Math.max((row.value / maxValue) * 100, 8)}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PostLeaderboard(props: {
+  title: string;
+  subtitle: string;
+  rows: Array<{ id: number; username: string; text: string; createdAt: string; metric: number; label: string }>;
+}) {
+  return (
+    <div className="ui-panel ui-panel-soft rounded-[28px] p-5">
+      <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{props.title}</div>
+      <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">{props.subtitle}</div>
+      <div className="mt-4 space-y-3">
+        {props.rows.map((row) => (
+          <div key={row.id} className="rounded-[24px] border border-white/25 bg-white/30 p-4 backdrop-blur-xl dark:bg-white/5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                  <Link to={`/u/${encodeURIComponent(row.username)}`} className="hover:underline">
+                    @{row.username}
+                  </Link>
+                  <span className="ui-dot" />
+                  <Timestamp value={row.createdAt} />
+                  <span className="ui-dot" />
+                  <Link to={`/p/${row.id}`} className="hover:underline">
+                    Open post
+                  </Link>
+                </div>
+                <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-gray-800 dark:text-gray-200">
+                  {row.text.trim() ? row.text.slice(0, 180) : 'Image-first post'}
+                  {row.text.length > 180 ? '…' : ''}
+                </div>
+              </div>
+              <div className="rounded-[18px] border border-white/30 bg-white/45 px-3 py-2 text-right shadow-[0_16px_28px_-24px_rgb(var(--ui-shadow-rgb)_/_0.5)] dark:bg-white/10">
+                <div className="text-xl font-bold text-gray-950 dark:text-white">{formatNumber(row.metric)}</div>
+                <div className="text-[11px] uppercase tracking-[0.18em] text-gray-400 dark:text-gray-500">{row.label}</div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DistributionCard(props: { rows: Array<{ bucket: string; count: number }> }) {
+  const maxValue = Math.max(...props.rows.map((row) => row.count), 1);
+
+  return (
+    <div className="ui-panel ui-panel-soft rounded-[28px] p-5">
+      <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">Posting distribution</div>
+      <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">How many posts users tend to publish overall.</div>
+      <div className="mt-5 space-y-3">
+        {props.rows.map((row) => (
+          <div key={row.bucket}>
+            <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+              <span className="font-medium text-gray-700 dark:text-gray-300">{row.bucket} posts</span>
+              <span className="ui-system text-gray-500 dark:text-gray-400">{formatNumber(row.count)}</span>
+            </div>
+            <div className="h-2.5 rounded-full bg-white/30 dark:bg-white/10">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-sky-300 to-pink-400"
+                style={{ width: `${Math.max((row.count / maxValue) * 100, 6)}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function InsightCard(props: { items: string[] }) {
+  return (
+    <div className="ui-panel ui-panel-soft rounded-[28px] p-5">
+      <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">What stands out right now</div>
+      <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">Quick readouts for the admin team.</div>
+      <div className="mt-4 grid gap-3">
+        {props.items.map((item, index) => (
+          <div key={index} className="rounded-[22px] border border-white/25 bg-white/30 px-4 py-3 text-sm leading-6 text-gray-700 backdrop-blur-xl dark:bg-white/5 dark:text-gray-300">
+            {item}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SqlPanel(props: {
+  sql: string;
+  onSqlChange: (value: string) => void;
+  onRun: () => void;
+  loading: boolean;
+  error: string | null;
+  result: AdminSqlResult | null;
+}) {
+  return (
+    <div className="ui-panel ui-panel-soft rounded-[28px] p-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">Read-only SQL panel</div>
+          <div className="mt-1 max-w-2xl text-xs leading-5 text-gray-500 dark:text-gray-400">
+            For inspection only. The backend only allows single-statement `SELECT` or `WITH` queries and automatically limits large results.
+          </div>
+        </div>
+        <div className="rounded-[22px] border border-white/25 bg-white/35 px-4 py-3 text-xs text-gray-600 shadow-[0_18px_34px_-28px_rgb(var(--ui-shadow-rgb)_/_0.5)] backdrop-blur-xl dark:bg-white/10 dark:text-gray-300">
+          Safe mode enabled
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+        <div>
+          <textarea
+            value={props.sql}
+            onChange={(event) => props.onSqlChange(event.target.value)}
+            className="ui-textarea min-h-56 font-mono text-xs leading-6"
+            spellCheck={false}
+          />
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs text-gray-500 dark:text-gray-400">
+              Suggested: `SELECT username, role, created_at FROM users ORDER BY created_at DESC`
+            </div>
+            <button type="button" onClick={props.onRun} disabled={props.loading} className="ui-btn ui-btn-primary px-5 py-2.5 disabled:opacity-50">
+              {props.loading ? 'Running query…' : 'Run read-only query'}
+            </button>
+          </div>
+          {props.error ? <div className="ui-error mt-4">{props.error}</div> : null}
+        </div>
+
+        <div className="rounded-[24px] border border-white/25 bg-white/30 p-4 backdrop-blur-xl dark:bg-white/5">
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">Query result</div>
+          <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">Run a read-only query to inspect live application data.</div>
+
+          {props.result ? (
+            <>
+              <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+                <span>Rows: <span className="ui-system">{props.result.rowCount}</span></span>
+                <span>Columns: <span className="ui-system">{props.result.columns.length}</span></span>
+                {props.result.limited ? <span className="ui-badge ui-system">Limited</span> : null}
+              </div>
+
+              <div className="mt-4 max-h-80 overflow-auto rounded-[18px] border border-white/20 bg-black/[0.04] dark:bg-white/[0.03]">
+                {props.result.columns.length > 0 ? (
+                  <table className="min-w-full text-left text-xs">
+                    <thead className="sticky top-0 bg-white/80 backdrop-blur-xl dark:bg-slate-900/80">
+                      <tr>
+                        {props.result.columns.map((column) => (
+                          <th key={column} className="border-b border-white/20 px-3 py-2 font-semibold text-gray-600 dark:text-gray-300">
+                            {column}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {props.result.rows.map((row, rowIndex) => (
+                        <tr key={rowIndex} className="border-b border-white/10 last:border-b-0">
+                          {row.map((cell, cellIndex) => (
+                            <td key={`${rowIndex}-${cellIndex}`} className="px-3 py-2 align-top text-gray-700 dark:text-gray-200">
+                              {cell === null ? <span className="text-gray-400 dark:text-gray-500">null</span> : String(cell)}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">Query returned no columns.</div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="mt-6 rounded-[18px] border border-dashed border-white/25 px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+              No query has been run yet.
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -135,28 +333,16 @@ export function AdminPage({ currentUser }: Props) {
   const [data, setData] = useState<AdminAnalytics | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const [sql, setSql] = useState("SELECT username, role, created_at FROM users ORDER BY created_at DESC");
+  const [sql, setSql] = useState('SELECT username, role, created_at FROM users ORDER BY created_at DESC');
   const [sqlLoading, setSqlLoading] = useState(false);
   const [sqlError, setSqlError] = useState<string | null>(null);
   const [sqlResult, setSqlResult] = useState<AdminSqlResult | null>(null);
 
   const isAdmin = Boolean(currentUser && (currentUser.role as Role) === 'admin');
 
-  const download = (filename: string, content: string, mime: string) => {
-    const blob = new Blob([content], { type: mime });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  };
-
   useEffect(() => {
     if (!isAdmin) return;
+
     const run = async () => {
       setLoading(true);
       setError(null);
@@ -173,360 +359,270 @@ export function AdminPage({ currentUser }: Props) {
     void run();
   }, [days, isAdmin]);
 
-  const seriesNewUsers: SeriesPoint[] = useMemo(
-    () => (data ? data.users.series.map((p) => ({ day: p.day, value: p.newUsers })) : []),
-    [data],
-  );
-  const seriesActiveUsers: SeriesPoint[] = useMemo(
-    () => (data ? data.users.series.map((p) => ({ day: p.day, value: p.activeUsers })) : []),
-    [data],
-  );
-  const seriesNewPosts: SeriesPoint[] = useMemo(
-    () => (data ? data.posts.series.map((p) => ({ day: p.day, value: p.newPosts })) : []),
-    [data],
-  );
-  const seriesLikes: SeriesPoint[] = useMemo(
-    () => (data ? data.engagement.series.map((p) => ({ day: p.day, value: p.likes })) : []),
-    [data],
-  );
-  const seriesComments: SeriesPoint[] = useMemo(
-    () => (data ? data.engagement.series.map((p) => ({ day: p.day, value: p.comments })) : []),
-    [data],
-  );
-  const seriesFriendRequests: SeriesPoint[] = useMemo(
-    () => (data ? data.friends.series.map((p) => ({ day: p.day, value: p.requests })) : []),
-    [data],
-  );
-  const seriesFriendAccepted: SeriesPoint[] = useMemo(
-    () => (data ? data.friends.series.map((p) => ({ day: p.day, value: p.accepted })) : []),
-    [data],
-  );
+  const seriesNewUsers = useMemo(() => (data ? data.users.series.map((point) => ({ day: point.day, value: point.newUsers })) : []), [data]);
+  const seriesActiveUsers = useMemo(() => (data ? data.users.series.map((point) => ({ day: point.day, value: point.activeUsers })) : []), [data]);
+  const seriesPosts = useMemo(() => (data ? data.posts.series.map((point) => ({ day: point.day, value: point.newPosts })) : []), [data]);
+  const seriesLikes = useMemo(() => (data ? data.engagement.series.map((point) => ({ day: point.day, value: point.likes })) : []), [data]);
+  const seriesComments = useMemo(() => (data ? data.engagement.series.map((point) => ({ day: point.day, value: point.comments })) : []), [data]);
+  const seriesFriendRequests = useMemo(() => (data ? data.friends.series.map((point) => ({ day: point.day, value: point.requests })) : []), [data]);
+  const seriesFriendAccepted = useMemo(() => (data ? data.friends.series.map((point) => ({ day: point.day, value: point.accepted })) : []), [data]);
+
+  const insights = useMemo(() => {
+    if (!data) return [];
+
+    const topCreator = data.users.top.byPosts[0];
+    const topLikedPost = data.posts.mostLiked[0];
+    const topConnected = data.friends.topByFriends[0];
+
+    return [
+      `${formatNumber(data.users.new.week)} new users joined in the last 7 days, with ${formatNumber(lastValue(seriesActiveUsers))} people active on the latest day of this window.`,
+      topCreator
+        ? `@${topCreator.username} is the most active creator right now with ${formatNumber(topCreator.value)} posts published.`
+        : 'No single creator has pulled ahead yet in total posts.',
+      topLikedPost
+        ? `The hottest post in the app belongs to @${topLikedPost.username} with ${formatNumber(topLikedPost.likeCount)} likes.`
+        : 'There is no standout post yet in the most-liked ranking.',
+      `The app averages ${formatDecimal(data.posts.perUserAverage)} posts per user, with ${formatPercent(data.friends.acceptanceRate)} of resolved friend requests ending in acceptance.`,
+      topConnected
+        ? `@${topConnected.username} currently leads the network graph with ${formatNumber(topConnected.value)} accepted friendships.`
+        : 'Friendship data is still too light to identify a network hub.',
+    ];
+  }, [data, seriesActiveUsers]);
+
+  const runSql = async () => {
+    setSqlLoading(true);
+    setSqlError(null);
+    try {
+      const result = await adminApi.runSql({ query: sql });
+      setSqlResult(result);
+    } catch (err) {
+      setSqlResult(null);
+      setSqlError(err instanceof Error ? err.message : 'Query failed');
+    } finally {
+      setSqlLoading(false);
+    }
+  };
 
   if (!currentUser) return <Navigate to="/login" />;
   if (!isAdmin) return <Navigate to="/" />;
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6">
-      <div className="ui-panel ui-panel-soft p-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Admin analytics</h1>
-            <div className="mt-0.5 text-xs text-gray-600 dark:text-gray-400">
-              Window <span className="ui-system">{days}d</span>
-              {data ? (
-                <>
-                  <span className="mx-2">·</span>
-                  Generated <Timestamp value={data.generatedAt} />
-                </>
-              ) : null}
+    <div className="ui-shell space-y-5">
+      <section className="ui-hero ui-card-hover">
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute left-0 top-4 h-40 w-40 rounded-full bg-[rgb(var(--ui-accent-rgb)_/_0.18)] blur-3xl" />
+          <div className="absolute right-6 top-8 h-36 w-36 rounded-full bg-[rgb(var(--ui-accent-2-rgb)_/_0.18)] blur-3xl" />
+          <div className="absolute bottom-0 left-1/3 h-24 w-64 rounded-full bg-[rgb(255_190_92_/_0.18)] blur-3xl" />
+        </div>
+
+        <div className="relative flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+          <div className="max-w-3xl">
+            <div className="ui-kicker">Admin command center</div>
+            <h1 className="ui-h1 mt-3 text-3xl sm:text-4xl">A live pulse on growth, creators, and community momentum.</h1>
+            <p className="ui-muted mt-3 max-w-2xl text-sm sm:text-base">
+              This dashboard is tuned for the signals an admin actually needs: who is posting, what content is winning attention, how the network is growing, and where engagement is concentrating.
+            </p>
+            <div className="mt-5 flex flex-wrap items-center gap-2">
+              <span className="ui-badge ui-system">{days} day analysis window</span>
+              {data ? <span className="ui-badge ui-system">Updated <Timestamp value={data.generatedAt} /></span> : null}
+              <span className="ui-badge ui-system">Realtime social health</span>
             </div>
           </div>
 
+          <div className="grid gap-3 sm:grid-cols-2 xl:w-[28rem]">
+            <div className="ui-stat rotate-[-2deg]">
+              <div className="ui-stat-value">{data ? formatNumber(data.users.total) : '...'}</div>
+              <div className="ui-stat-label">Total users</div>
+            </div>
+            <div className="ui-stat translate-y-3 rotate-[3deg]">
+              <div className="ui-stat-value">{data ? formatNumber(data.posts.total) : '...'}</div>
+              <div className="ui-stat-label">Total posts</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="ui-divider-glow my-6" />
+
+        <div className="relative flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-2">
-            <label className="flex items-center gap-2 text-sm">
-              <span className="text-gray-600 dark:text-gray-400">Window</span>
-              <select
-                value={days}
-                onChange={(e) => setDays(Number(e.target.value))}
-                className="ui-btn px-2 py-1 text-sm"
+            {[7, 30, 90, 365].map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setDays(value)}
+                className={`ui-btn px-4 py-2 ${days === value ? 'ui-btn-primary' : ''}`}
               >
-                <option value={7}>7 days</option>
-                <option value={30}>30 days</option>
-                <option value={90}>90 days</option>
-                <option value={365}>365 days</option>
-              </select>
-            </label>
+                {value} days
+              </button>
+            ))}
+          </div>
 
-            {data ? (
-              <>
-                <button
-                  type="button"
-                  className="ui-btn px-3 py-2 text-sm"
-                  onClick={() => {
-                    download(
-                      `analytics_${days}d_${new Date(data.generatedAt).toISOString()}.json`,
-                      JSON.stringify(data, null, 2),
-                      'application/json',
-                    );
-                  }}
-                >
-                  Export JSON
-                </button>
-                <button
-                  type="button"
-                  className="ui-btn px-3 py-2 text-sm"
-                  onClick={() => {
-                    const lines: string[] = [];
-                    lines.push('section,day,metric,value');
-
-                    for (const p of data.users.series) {
-                      lines.push(`users,${p.day},newUsers,${p.newUsers}`);
-                      lines.push(`users,${p.day},activeUsers,${p.activeUsers}`);
-                    }
-                    for (const p of data.posts.series) {
-                      lines.push(`posts,${p.day},newPosts,${p.newPosts}`);
-                    }
-                    for (const p of data.engagement.series) {
-                      lines.push(`engagement,${p.day},likes,${p.likes}`);
-                      lines.push(`engagement,${p.day},comments,${p.comments}`);
-                    }
-                    for (const p of data.friends.series) {
-                      lines.push(`friends,${p.day},requests,${p.requests}`);
-                      lines.push(`friends,${p.day},accepted,${p.accepted}`);
-                    }
-
-                    download(
-                      `analytics_series_${days}d_${new Date(data.generatedAt).toISOString()}.csv`,
-                      `${lines.join('\n')}\n`,
-                      'text/csv',
-                    );
-                  }}
-                >
-                  Export CSV
-                </button>
-              </>
-            ) : null}
-
-            <Link to="/" className="ui-link text-sm">
+          <div className="flex flex-wrap items-center gap-3 rounded-[24px] border border-white/25 bg-white/35 px-4 py-3 text-sm shadow-[0_18px_36px_-28px_rgb(var(--ui-shadow-rgb)_/_0.48)] backdrop-blur-xl dark:bg-white/10">
+            <span className="text-gray-600 dark:text-gray-300">Need the public experience?</span>
+            <Link to="/" className="ui-btn px-4 py-2">
               Back to feed
             </Link>
           </div>
         </div>
-      </div>
+      </section>
 
-      {loading ? <div className="mt-4 text-sm text-gray-700 dark:text-gray-300">Loading…</div> : null}
-      {error ? <div className="mt-4 text-sm text-red-600 dark:text-red-300">{error}</div> : null}
+      {loading ? <div className="ui-panel ui-panel-soft rounded-[28px] p-5 text-sm text-gray-700 dark:text-gray-300">Loading dashboard data…</div> : null}
+      {error ? <div className="ui-error">{error}</div> : null}
 
       {data ? (
-        <div className="mt-4 grid gap-4">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <MetricTile
-              label="Users"
-              value={data.users.total}
-              sub={
-                <>
-                  New: today <span className="ui-system">{data.users.new.today}</span>, week{' '}
-                  <span className="ui-system">{data.users.new.week}</span>, month <span className="ui-system">{data.users.new.month}</span>
-                </>
-              }
-              right={
-                <>
-                  <div className="text-xs text-gray-600 dark:text-gray-400">Active/day (latest)</div>
-                  <div className="mt-1 flex items-baseline justify-between">
-                    <div className="ui-system text-sm tabular-nums">{lastValue(seriesActiveUsers)}</div>
-                    <div className="text-xs text-gray-600 dark:text-gray-400">trend</div>
-                  </div>
-                  <div className="mt-1">
-                    <Sparkline points={seriesActiveUsers} />
-                  </div>
-                </>
-              }
+        <>
+          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <DashboardStat
+              label="Community size"
+              value={formatNumber(data.users.total)}
+              meta={<><span className="ui-system">{formatNumber(data.users.new.month)}</span> joined in the last 30 days</>}
+              tone="pink"
             />
-            <MetricTile
-              label="Posts"
-              value={data.posts.total}
-              sub={
-                <>
-                  Avg/user <span className="ui-system">{data.posts.perUserAverage.toFixed(2)}</span>
-                </>
-              }
-              right={
-                <>
-                  <div className="text-xs text-gray-600 dark:text-gray-400">New posts/day (latest)</div>
-                  <div className="mt-1 ui-system text-sm tabular-nums">{lastValue(seriesNewPosts)}</div>
-                  <div className="mt-1">
-                    <Sparkline points={seriesNewPosts} />
-                  </div>
-                </>
-              }
+            <DashboardStat
+              label="Daily activity"
+              value={formatNumber(lastValue(seriesActiveUsers))}
+              meta={<><span className="ui-system">{formatNumber(data.users.new.week)}</span> joined in the last 7 days</>}
+              tone="aqua"
             />
-            <MetricTile
-              label="Engagement"
-              value={
-                <>
-                  <span className="ui-system">{data.engagement.totalLikes}</span> likes ·{' '}
-                  <span className="ui-system">{data.engagement.totalComments}</span> comments
-                </>
-              }
-              sub={
-                <>
-                  Ratios: like/post <span className="ui-system">{data.engagement.likeToPostRatio.toFixed(2)}</span>, comment/post{' '}
-                  <span className="ui-system">{data.engagement.commentToPostRatio.toFixed(2)}</span>
-                </>
-              }
-              right={
-                <>
-                  <div className="text-xs text-gray-600 dark:text-gray-400">Likes/day (latest)</div>
-                  <div className="mt-1 ui-system text-sm tabular-nums">{lastValue(seriesLikes)}</div>
-                  <div className="mt-1">
-                    <Sparkline points={seriesLikes} />
-                  </div>
-                </>
-              }
+            <DashboardStat
+              label="Content volume"
+              value={formatNumber(data.posts.total)}
+              meta={<><span className="ui-system">{formatDecimal(data.posts.perUserAverage)}</span> posts per user on average</>}
+              tone="amber"
             />
-            <MetricTile
-              label="Friendships"
-              value={data.friends.totalAccepted}
-              sub={
-                <>
-                  Pending <span className="ui-system">{data.friends.totalPending}</span> · Rejected{' '}
-                  <span className="ui-system">{data.friends.totalRejected}</span> · Acceptance{' '}
-                  <span className="ui-system">{(data.friends.acceptanceRate * 100).toFixed(1)}%</span>
-                </>
-              }
-              right={
-                <>
-                  <div className="text-xs text-gray-600 dark:text-gray-400">Requests/day (latest)</div>
-                  <div className="mt-1 ui-system text-sm tabular-nums">{lastValue(seriesFriendRequests)}</div>
-                  <div className="mt-1">
-                    <Sparkline points={seriesFriendRequests} />
-                  </div>
-                </>
-              }
+            <DashboardStat
+              label="Relationship health"
+              value={formatPercent(data.friends.acceptanceRate)}
+              meta={<><span className="ui-system">{formatNumber(data.friends.totalPending)}</span> requests are still pending</>}
+              tone="neutral"
             />
-            <MetricTile
-              label="This window"
-              value={<span className="ui-system">{days} days</span>}
-              sub={
-                <>
-                  Friend requests <span className="ui-system">{data.friends.requests.window}</span> · Accepted{' '}
-                  <span className="ui-system">{data.friends.accepted.window}</span>
-                </>
-              }
-            />
-          </div>
+          </section>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="grid gap-4">
-              <div className="ui-panel ui-panel-soft p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">Trends (window)</div>
-                    <div className="mt-0.5 text-xs text-gray-600 dark:text-gray-400">
-                      Daily series for the last <span className="ui-system">{days}d</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <MetricTile label="New users/day" value={<span className="ui-system">{lastValue(seriesNewUsers)}</span>} right={<Sparkline points={seriesNewUsers} />} />
-                  <MetricTile label="Active users/day" value={<span className="ui-system">{lastValue(seriesActiveUsers)}</span>} right={<Sparkline points={seriesActiveUsers} />} />
-                  <MetricTile label="Comments/day" value={<span className="ui-system">{lastValue(seriesComments)}</span>} right={<Sparkline points={seriesComments} />} />
-                  <MetricTile label="Friend accept/day" value={<span className="ui-system">{lastValue(seriesFriendAccepted)}</span>} right={<Sparkline points={seriesFriendAccepted} />} />
-                </div>
-              </div>
-
-              <div className="ui-panel ui-panel-soft p-3">
-                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">Distribution</div>
-                <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">Posts per user (histogram)</div>
-                <div className="mt-2 grid gap-1 text-xs">
-                  {data.posts.perUserBuckets.map((b) => (
-                    <div key={b.bucket} className="flex items-center justify-between">
-                      <div className="text-gray-700 dark:text-gray-300">{b.bucket}</div>
-                      <div className="ui-system tabular-nums">{b.count}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+          <section className="grid gap-4 xl:grid-cols-[1.45fr_0.95fr]">
+            <div className="grid gap-4 md:grid-cols-2">
+              <TrendCard title="New users" subtitle="Fresh signups entering the app" value={formatNumber(lastValue(seriesNewUsers))} points={seriesNewUsers} colorClass="text-pink-500" />
+              <TrendCard title="Posts created" subtitle="Publishing velocity across the network" value={formatNumber(lastValue(seriesPosts))} points={seriesPosts} colorClass="text-amber-400" />
+              <TrendCard title="Likes generated" subtitle="Positive engagement landing on posts" value={formatNumber(lastValue(seriesLikes))} points={seriesLikes} colorClass="text-cyan-400" />
+              <TrendCard title="Comments written" subtitle="Conversation depth by day" value={formatNumber(lastValue(seriesComments))} points={seriesComments} colorClass="text-fuchsia-400" />
             </div>
 
             <div className="grid gap-4">
-              <div className="ui-panel ui-panel-soft p-3">
-                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">Leaderboards (all time)</div>
-                <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">Rankings use all-time totals (not windowed).</div>
-                <div className="mt-3 grid gap-3">
-                  <TopUserTable title="Most active users (posts)" valueLabel="Posts" rows={data.users.top.byPosts} />
-                  <TopUserTable title="Most active users (likes received)" valueLabel="Likes" rows={data.users.top.byLikesReceived} />
-                  <TopUserTable title="Most active users (comments made)" valueLabel="Comments" rows={data.users.top.byCommentsMade} />
-                  <TopUserTable title="Most connected users (friends)" valueLabel="Friends" rows={data.friends.topByFriends} />
-                  <TopPostTable
-                    title="Most liked posts (all time)"
-                    valueLabel="Likes"
-                    rows={data.posts.mostLiked.map((p) => ({ id: p.id, username: p.username, text: p.text, createdAt: p.createdAt, value: p.likeCount }))}
-                  />
-                  <TopPostTable
-                    title="Most discussed posts (all time)"
-                    valueLabel="Comments"
-                    rows={data.posts.mostCommented.map((p) => ({ id: p.id, username: p.username, text: p.text, createdAt: p.createdAt, value: p.commentCount }))}
-                  />
-                </div>
-              </div>
+              <InsightCard items={insights} />
+              <DistributionCard rows={data.posts.perUserBuckets} />
+            </div>
+          </section>
 
-              <div className="ui-panel ui-panel-soft p-3">
-                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">SQL console (read-only)</div>
-                <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">Only single-statement SELECT/WITH queries are allowed. Results are capped.</div>
+          <section className="grid gap-4 xl:grid-cols-3">
+            <DashboardStat
+              label="Likes per post"
+              value={formatDecimal(data.engagement.likeToPostRatio)}
+              meta="Average likes generated for each published post."
+              tone="pink"
+            />
+            <DashboardStat
+              label="Comments per post"
+              value={formatDecimal(data.engagement.commentToPostRatio)}
+              meta="Conversation depth relative to post volume."
+              tone="aqua"
+            />
+            <DashboardStat
+              label="Average friends per user"
+              value={formatDecimal(data.friends.avgFriendsPerUser)}
+              meta={<><span className="ui-system">{formatNumber(data.friends.accepted.window)}</span> new accepted connections in this window</>}
+              tone="amber"
+            />
+          </section>
 
-                {sqlError ? <div className="mt-2 text-sm text-red-600 dark:text-red-300">{sqlError}</div> : null}
+          <section className="grid gap-4 xl:grid-cols-2">
+            <PostLeaderboard
+              title="Most liked posts"
+              subtitle="The content currently winning the strongest positive reaction."
+              rows={data.posts.mostLiked.map((post) => ({
+                id: post.id,
+                username: post.username,
+                text: post.text,
+                createdAt: post.createdAt,
+                metric: post.likeCount,
+                label: 'likes',
+              }))}
+            />
+            <PostLeaderboard
+              title="Most discussed posts"
+              subtitle="Posts that are generating the most conversation."
+              rows={data.posts.mostCommented.map((post) => ({
+                id: post.id,
+                username: post.username,
+                text: post.text,
+                createdAt: post.createdAt,
+                metric: post.commentCount,
+                label: 'comments',
+              }))}
+            />
+          </section>
 
-                <textarea
-                  value={sql}
-                  onChange={(e) => setSql(e.target.value)}
-                  className="mt-2 min-h-28 w-full rounded-md border bg-white px-3 py-2 font-mono text-xs dark:border-gray-800 dark:bg-gray-950"
+          <section className="grid gap-4 xl:grid-cols-3">
+            <RankingList
+              title="Most active users"
+              subtitle="Users publishing the most posts overall."
+              rows={data.users.top.byPosts}
+              suffix="posts"
+            />
+            <RankingList
+              title="Most liked creators"
+              subtitle="Users receiving the strongest audience approval."
+              rows={data.users.top.byLikesReceived}
+              suffix="likes"
+            />
+            <RankingList
+              title="Top commenters"
+              subtitle="Users driving the most replies and discussion."
+              rows={data.users.top.byCommentsMade}
+              suffix="comments"
+            />
+          </section>
+
+          <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+            <div className="ui-panel ui-panel-soft rounded-[28px] p-5">
+              <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">Connection momentum</div>
+              <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">Friend requests compared with accepted connections inside the current window.</div>
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                <TrendCard
+                  title="Requests sent"
+                  subtitle="How fast new social edges are being created"
+                  value={formatNumber(lastValue(seriesFriendRequests))}
+                  points={seriesFriendRequests}
+                  colorClass="text-cyan-400"
                 />
-
-                <div className="mt-2 flex items-center justify-end">
-                  <button
-                    disabled={sqlLoading}
-                    onClick={async () => {
-                      setSqlLoading(true);
-                      setSqlError(null);
-                      try {
-                        const result = await adminApi.runSql({ query: sql });
-                        setSqlResult(result);
-                      } catch (err) {
-                        setSqlResult(null);
-                        setSqlError(err instanceof Error ? err.message : 'Query failed');
-                      } finally {
-                        setSqlLoading(false);
-                      }
-                    }}
-                    className="ui-btn px-4 py-2 text-sm disabled:opacity-50"
-                  >
-                    {sqlLoading ? 'Running…' : 'Run query'}
-                  </button>
-                </div>
-
-                {sqlResult ? (
-                  <div className="mt-3 overflow-x-auto">
-                    <div className="text-xs text-gray-600 dark:text-gray-400">
-                      Rows: <span className="ui-system">{sqlResult.rowCount}</span>
-                      {sqlResult.limited ? ' (limited)' : ''}
-                    </div>
-                    <table className="mt-2 w-full text-left text-xs">
-                      <thead className="text-gray-600 dark:text-gray-400">
-                        <tr>
-                          {sqlResult.columns.map((c) => (
-                            <th key={c} className="border-b py-1 pr-3 dark:border-gray-800">
-                              {c}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sqlResult.rows.map((r, idx) => (
-                          <tr key={idx} className="border-b dark:border-gray-800">
-                            {r.map((cell, j) => (
-                              <td key={j} className="py-1 pr-3 align-top">
-                                {cell === null || cell === undefined ? '' : String(cell)}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : null}
+                <TrendCard
+                  title="Requests accepted"
+                  subtitle="How much of that demand becomes real connection"
+                  value={formatNumber(lastValue(seriesFriendAccepted))}
+                  points={seriesFriendAccepted}
+                  colorClass="text-pink-500"
+                />
               </div>
             </div>
-          </div>
 
-          <div className="text-xs text-gray-500 dark:text-gray-400">
-            Generated at <Timestamp value={data.generatedAt} />
-          </div>
-        </div>
+            <RankingList
+              title="Network hubs"
+              subtitle="Users with the highest accepted friend counts."
+              rows={data.friends.topByFriends}
+              suffix="friends"
+            />
+          </section>
+
+          <section>
+            <SqlPanel
+              sql={sql}
+              onSqlChange={setSql}
+              onRun={() => void runSql()}
+              loading={sqlLoading}
+              error={sqlError}
+              result={sqlResult}
+            />
+          </section>
+        </>
       ) : null}
-
-      <div className="sr-only">Analytics dashboard</div>
     </div>
   );
 }

@@ -119,15 +119,41 @@
 - Routing + session bootstrap + unread badge: `client/src/App.tsx`
 - Navigation (theme toggle + unread badge): `client/src/components/NavBar.tsx`
 - Feed: `client/src/pages/FeedPage.tsx`
+- Composer: `client/src/components/PostComposer.tsx`
+- Feed cards: `client/src/components/PostCard.tsx`
 - Post detail: `client/src/pages/PostPage.tsx`
 - Profile (includes friend actions + friends pagination): `client/src/pages/ProfilePage.tsx`
 - Notifications inbox: `client/src/pages/NotificationsPage.tsx`
 - Search page: `client/src/pages/SearchPage.tsx`
 - Admin dashboard: `client/src/pages/AdminPage.tsx`
 
+## Current design philosophy
+- The UI direction is intentionally more vibrant and youthful than the original neutral dashboard style.
+- Visual language is based on glassmorphism, but not the flat "frosted card everywhere" version. Panels should feel layered, floating, and slightly luminous.
+- The core palette is warm pink/coral plus aqua, with small amber accents to keep gradients from feeling generic.
+- Typography is part of the identity: `Space Grotesk` for display, `Sora` for body, and `IBM Plex Mono` for system/meta labels.
+- Motion should support atmosphere and hierarchy, not become noise. Prefer soft lift, blur, shimmer, and staggered reveal over busy animation.
+- Surfaces should feel translucent and elevated: rounded corners, soft borders, inset highlights, deep but diffused shadows, and visible depth between background and content.
+- Interactive elements should read clearly at a glance. Important controls should have stronger glow/contrast states rather than relying only on subtle border changes.
+- Empty states and hero sections should feel art-directed, with ambient blobs, glow, and supporting copy rather than plain centered boxes.
+- Preserve responsiveness. The visual system should still work on mobile, which means avoiding oversized decorative layers that break stacking or readability.
+- When editing UI, prefer extending the shared tokens and utility classes in `client/src/index.css` instead of scattering one-off styling across pages.
+
+## Recent UI direction changes
+- Global visual system in `client/src/index.css` was refreshed to use brighter gradients, stronger glass panels, floating ambient backgrounds, and updated typography.
+- Branding in `client/index.html` now uses the `Social Pulse` title and a matching inline gradient favicon.
+- `client/src/components/NavBar.tsx` was redesigned into a floating glass header with stronger active states and a more branded identity.
+- `client/src/pages/FeedPage.tsx` now has a more expressive hero section with layered glow, stronger copy, and a clearer sense of motion and energy.
+- `client/src/components/PostComposer.tsx` and `client/src/components/PostCard.tsx` were updated to feel more tactile and elevated, including stronger glass surfaces and highlighted interaction states.
+
+## Recent bug fixes
+- Feed pagination bug fixed in `server/src/routes/posts.ts`: cursor-based feed requests were generating invalid SQL because the query appended a second `WHERE` instead of an `AND`.
+- Pagination labels were clarified in the feed, profile, and notifications views so the UI now explicitly says there is no more content instead of feeling broken.
+
 ## Known nuances / follow-ups
 - Username changes are intentionally not supported (users cannot rename their account after signup).
 - Automated tests are not set up yet (only manual testing).
+- The current vibrant glass style is strongest on the navbar, feed hero, composer, and post cards. Login, signup, search, notifications, profile detail surfaces, and admin can still be brought further into the same visual language.
 
 ## High-value next tasks
 Pick one depending on your goal:

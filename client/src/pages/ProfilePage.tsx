@@ -627,7 +627,7 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
                     className="ui-btn rounded-full px-5 py-2.5 disabled:opacity-50"
                     type="button"
                   >
-                    {nextCursor ? (loading ? 'Loading…' : 'Load more posts') : 'No more posts'}
+                    {nextCursor ? (loading ? 'Loading…' : 'Load more posts') : 'No more new posts'}
                   </button>
                 </div>
               ) : null}
@@ -720,7 +720,7 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
                     className="ui-btn rounded-full px-4 py-2 disabled:opacity-50"
                     type="button"
                   >
-                    {friendsNextCursor ? (friendsLoadingMore ? 'Loading…' : 'Load more') : 'No more'}
+                    {friendsNextCursor ? (friendsLoadingMore ? 'Loading…' : 'Load more friends') : 'No more friends'}
                   </button>,
                 )}
 
@@ -801,7 +801,7 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
                     className="ui-btn rounded-full px-4 py-2 disabled:opacity-50"
                     type="button"
                   >
-                    {requestsReceivedNextCursor ? (requestsReceivedLoadingMore ? 'Loading…' : 'Load more') : 'No more'}
+                    {requestsReceivedNextCursor ? (requestsReceivedLoadingMore ? 'Loading…' : 'Load more requests') : 'No more requests'}
                   </button>,
                 )}
 
@@ -841,7 +841,7 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
                     className="ui-btn rounded-full px-4 py-2 disabled:opacity-50"
                     type="button"
                   >
-                    {requestsSentNextCursor ? (requestsSentLoadingMore ? 'Loading…' : 'Load more') : 'No more'}
+                    {requestsSentNextCursor ? (requestsSentLoadingMore ? 'Loading…' : 'Load more requests') : 'No more requests'}
                   </button>,
                 )}
               </div>

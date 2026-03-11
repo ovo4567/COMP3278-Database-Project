@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { commentsApi } from '../lib/api';
-import type { Comment } from '../lib/types';
+import type { Comment, User } from '../lib/types';
 import { Timestamp } from './Timestamp';
 
-export function CommentsPanel(props: { postId: number }) {
+export function CommentsPanel(props: { postId: number; currentUser: User | null }) {
   const [items, setItems] = useState<Comment[]>([]);
   const [nextCursor, setNextCursor] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -44,38 +45,79 @@ export function CommentsPanel(props: { postId: number }) {
   };
 
   return (
-    <div className="ui-panel ui-panel-soft mt-2 p-3">
-      <form onSubmit={submit} className="flex gap-2">
-        <input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Write a comment"
-          className="ui-input"
-        />
-        <button className="ui-btn ui-btn-primary shrink-0 px-3 py-2" type="submit">Send</button>
-      </form>
-
-      {error ? <div className="ui-error mt-2">{error}</div> : null}
-
-      <div className="mt-3 flex flex-col gap-2">
-        {items.map((c) => (
-          <div key={c.id} className="ui-panel ui-panel-soft px-3 py-2">
-            <div className="ui-muted text-xs">
-              @{c.user.username} • <Timestamp value={c.createdAt} />
-            </div>
-            <div className="text-sm">{c.text}</div>
-          </div>
-        ))}
+    <div className="ui-panel ui-panel-soft mt-3 rounded-2xl p-3 sm:p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">Conversation</div>
+          <div className="ui-muted mt-1 text-xs">Jump in with a reply or browse older comments.</div>
+        </div>
+        <div className="ui-badge ui-system">{items.length} shown</div>
       </div>
 
-      <div className="mt-3 flex justify-end">
+      {props.currentUser ? (
+        <form onSubmit={submit} className="mt-4 flex flex-col gap-2 sm:flex-row">
+          <input
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Write a thoughtful reply"
+            className="ui-input"
+          />
+          <button className="ui-btn ui-btn-primary shrink-0 rounded-full px-4 py-2" type="submit">
+            Send
+          </button>
+        </form>
+      ) : (
+        <div className="mt-4 rounded-2xl border border-[rgb(var(--ui-border-rgb)_/_0.65)] bg-white/40 px-4 py-3 text-sm dark:bg-white/5">
+          <span className="ui-muted">Login to join the conversation.</span>{' '}
+          <Link to="/login" className="ui-link">
+            Sign in
+          </Link>
+        </div>
+      )}
+
+      {error ? <div className="ui-error mt-3">{error}</div> : null}
+
+      <div className="mt-4 flex flex-col gap-2">
+        {items.length === 0 && !loading ? (
+          <div className="rounded-2xl border border-dashed border-[rgb(var(--ui-border-rgb)_/_0.7)] px-4 py-6 text-center text-sm text-gray-600 dark:text-gray-300">
+            No comments yet. Be the first to reply.
+          </div>
+        ) : null}
+
+        {items.map((c, index) => {
+          const initials = c.user.displayName?.trim()?.charAt(0) ?? c.user.username.charAt(0);
+          return (
+            <div key={c.id} className="ui-panel ui-panel-soft ui-card-hover px-3 py-3 ui-appear-up" style={{ animationDelay: `${Math.min(index * 30, 180)}ms` }}>
+              <div className="flex gap-3">
+                {c.user.avatarUrl ? (
+                  <img src={c.user.avatarUrl} alt="Avatar" className="h-10 w-10 rounded-2xl border object-cover" loading="lazy" />
+                ) : (
+                  <div className="ui-avatar h-10 w-10 rounded-2xl text-xs uppercase">{initials}</div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="font-medium text-gray-900 dark:text-gray-100">{c.user.displayName ?? `@${c.user.username}`}</span>
+                    <span className="ui-dot" />
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      @{c.user.username} · <Timestamp value={c.createdAt} />
+                    </span>
+                  </div>
+                  <div className="mt-1 whitespace-pre-wrap text-sm text-gray-800 dark:text-gray-100">{c.text}</div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-4 flex justify-end">
         <button
           disabled={loading || !nextCursor}
           onClick={() => void load(false)}
-          className="ui-link text-sm disabled:opacity-50"
+          className="ui-btn rounded-full px-4 py-2 disabled:opacity-50"
           type="button"
         >
-          {nextCursor ? (loading ? 'Loading…' : 'Load older') : 'No more'}
+          {nextCursor ? (loading ? 'Loading…' : 'Load older comments') : 'No more comments'}
         </button>
       </div>
     </div>

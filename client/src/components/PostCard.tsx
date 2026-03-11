@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { FeedPost, User } from '../lib/types';
 import { postsApi } from '../lib/api';
 import { CommentsPanel } from './CommentsPanel';
@@ -17,15 +18,25 @@ export function PostCard(props: {
   const [imageUrl, setImageUrl] = useState(props.post.imageUrl ?? '');
   const [visibility, setVisibility] = useState<'public' | 'friends'>(props.post.visibility ?? 'public');
   const [error, setError] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<'like' | 'save' | 'delete' | null>(null);
 
   const canEdit = useMemo(() => {
     if (!props.currentUser) return false;
     return props.currentUser.username === props.post.user.username || props.currentUser.role === 'admin';
   }, [props.currentUser, props.post.user.username]);
 
+  const displayName = props.post.user.displayName ?? `@${props.post.user.username}`;
+  const initials = props.post.user.displayName?.trim()?.charAt(0) ?? props.post.user.username.charAt(0);
+
   const like = async () => {
-    const res = await postsApi.toggleLike(props.post.id);
-    props.onChange({ ...props.post, likeCount: res.likeCount, likedByMe: res.liked });
+    if (!props.currentUser) return;
+    setBusyAction('like');
+    try {
+      const res = await postsApi.toggleLike(props.post.id);
+      props.onChange({ ...props.post, likeCount: res.likeCount, likedByMe: res.liked });
+    } finally {
+      setBusyAction(null);
+    }
   };
 
   const save = async () => {
@@ -36,6 +47,7 @@ export function PostCard(props: {
       setError('Add text or an image URL');
       return;
     }
+    setBusyAction('save');
     try {
       await postsApi.edit(props.post.id, {
         text: nextText,
@@ -51,95 +63,102 @@ export function PostCard(props: {
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update');
+    } finally {
+      setBusyAction(null);
     }
   };
 
   const remove = async () => {
-    await postsApi.remove(props.post.id);
-    props.onDelete(props.post.id);
+    if (!confirm('Delete this post?')) return;
+    setBusyAction('delete');
+    try {
+      await postsApi.remove(props.post.id);
+      props.onDelete(props.post.id);
+    } finally {
+      setBusyAction(null);
+    }
   };
 
   return (
-    <article className="ui-panel ui-panel-soft p-3">
+    <article className="ui-panel ui-panel-soft ui-card-hover overflow-hidden rounded-2xl p-4">
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-            {props.post.user.displayName ?? `@${props.post.user.username}`}
-          </div>
-          <div className="text-xs text-gray-500 dark:text-gray-400">
-            @{props.post.user.username} • <Timestamp value={props.post.createdAt} />
-            {props.post.updatedAt ? ' (edited)' : ''}
+        <div className="min-w-0 flex items-start gap-3">
+          <Link to={`/u/${encodeURIComponent(props.post.user.username)}`} className="ui-motion rounded-2xl hover:scale-[1.03]">
+            {props.post.user.avatarUrl ? (
+              <img src={props.post.user.avatarUrl} alt="Avatar" className="h-12 w-12 rounded-2xl border object-cover" loading="lazy" />
+            ) : (
+              <div className="ui-avatar h-12 w-12 text-xs uppercase">{initials}</div>
+            )}
+          </Link>
+
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <Link to={`/u/${encodeURIComponent(props.post.user.username)}`} className="truncate text-sm font-semibold text-gray-900 hover:underline dark:text-gray-100">
+                {displayName}
+              </Link>
+              {props.post.visibility === 'friends' ? <span className="ui-badge ui-system">Friends only</span> : null}
+              {props.post.updatedAt ? <span className="ui-badge">Edited</span> : null}
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+              <span>@{props.post.user.username}</span>
+              <span className="ui-dot" />
+              <Timestamp value={props.post.createdAt} />
+              <span className="ui-dot" />
+              <Link to={`/p/${props.post.id}`} className="ui-link text-xs">
+                Open post
+              </Link>
+            </div>
           </div>
         </div>
 
         {canEdit ? (
-          <div className="flex gap-2">
-            <button
-              onClick={() => setEditing((v) => !v)}
-              className="ui-btn px-2 py-1 text-xs"
-            >
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <button onClick={() => setEditing((value) => !value)} className="ui-btn rounded-full px-3 py-1.5 text-xs" type="button">
               {editing ? 'Cancel' : 'Edit'}
             </button>
             <button
               onClick={() => void remove()}
-              className="ui-btn px-2 py-1 text-xs"
+              className="ui-btn rounded-full px-3 py-1.5 text-xs"
+              disabled={busyAction === 'delete'}
+              type="button"
             >
-              Delete
+              {busyAction === 'delete' ? 'Deleting…' : 'Delete'}
             </button>
           </div>
         ) : null}
       </div>
 
       {editing ? (
-        <div className="mt-2 space-y-2">
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            className="ui-textarea min-h-20"
-          />
-          <input
-            value={imageUrl}
-            onChange={(e) => setImageUrl(e.target.value)}
-            placeholder="Optional image URL"
-            className="ui-input"
-          />
-          <label className="grid gap-1">
-            <div className="text-xs text-gray-600 dark:text-gray-400">Visibility</div>
-            <select
-              value={visibility}
-              onChange={(e) => setVisibility(e.target.value as 'public' | 'friends')}
-              className="ui-select"
-            >
-              <option value="public">Public</option>
-              <option value="friends">Friends</option>
-            </select>
-          </label>
+        <div className="mt-4 space-y-3 rounded-2xl border border-[rgb(var(--ui-border-rgb)_/_0.68)] bg-white/30 p-3 dark:bg-white/5">
+          <textarea value={text} onChange={(e) => setText(e.target.value)} className="ui-textarea min-h-24" />
+          <input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="Optional image URL" className="ui-input" />
+          <div>
+            <div className="text-xs font-medium uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">Visibility</div>
+            <div className="mt-2 ui-segmented">
+              <button type="button" onClick={() => setVisibility('public')} className={`ui-segment ${visibility === 'public' ? 'ui-segment-active' : ''}`}>
+                Public
+              </button>
+              <button type="button" onClick={() => setVisibility('friends')} className={`ui-segment ${visibility === 'friends' ? 'ui-segment-active' : ''}`}>
+                Friends
+              </button>
+            </div>
+          </div>
           {error ? <div className="ui-error">{error}</div> : null}
           <div className="flex justify-end">
-            <button
-              onClick={() => void save()}
-              className="ui-btn ui-btn-primary px-3 py-2"
-            >
-              Save
+            <button onClick={() => void save()} className="ui-btn ui-btn-primary rounded-full px-4 py-2" disabled={busyAction === 'save'} type="button">
+              {busyAction === 'save' ? 'Saving…' : 'Save changes'}
             </button>
           </div>
         </div>
       ) : (
         <>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            {props.post.visibility === 'friends' ? (
-              <span className="ui-badge ui-system">Friends</span>
-            ) : null}
-          </div>
-          {props.post.text ? (
-            <div className="mt-2 whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100">{props.post.text}</div>
-          ) : null}
+          {props.post.text ? <div className="mt-4 whitespace-pre-wrap text-sm leading-6 text-gray-900 dark:text-gray-100">{props.post.text}</div> : null}
           {props.post.imageUrl ? (
-            <div className="mt-2">
+            <div className="mt-4 overflow-hidden rounded-2xl border border-[rgb(var(--ui-border-rgb)_/_0.65)] bg-black/[0.03] dark:bg-white/[0.03]">
               <img
                 src={props.post.imageUrl}
                 alt="Post"
-                className="max-h-96 w-full cursor-zoom-in rounded-md border object-contain"
+                className="max-h-[32rem] w-full cursor-zoom-in object-contain ui-motion hover:scale-[1.01]"
                 loading="lazy"
                 onClick={() => setLightboxOpen(true)}
               />
@@ -150,23 +169,19 @@ export function PostCard(props: {
 
       {lightboxOpen && props.post.imageUrl ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-6 backdrop-blur-sm"
           role="dialog"
           aria-modal="true"
           onClick={() => setLightboxOpen(false)}
         >
-          <div className="max-h-full max-w-4xl" onClick={(e) => e.stopPropagation()}>
+          <div className="max-h-full max-w-4xl ui-appear-up" onClick={(e) => e.stopPropagation()}>
             <img
               src={props.post.imageUrl}
               alt="Post"
-              className="max-h-[85vh] w-full rounded-md border bg-white object-contain dark:border-gray-800 dark:bg-gray-950"
+              className="max-h-[85vh] w-full rounded-2xl border bg-white object-contain dark:border-gray-800 dark:bg-gray-950"
             />
-            <div className="mt-2 flex justify-end">
-              <button
-                onClick={() => setLightboxOpen(false)}
-                className="ui-btn"
-                type="button"
-              >
+            <div className="mt-3 flex justify-end">
+              <button onClick={() => setLightboxOpen(false)} className="ui-btn rounded-full px-4 py-2" type="button">
                 Close
               </button>
             </div>
@@ -174,22 +189,31 @@ export function PostCard(props: {
         </div>
       ) : null}
 
-      <div className="mt-3 flex items-center justify-between">
-        <button
-          onClick={() => void like()}
-          className="ui-btn"
-        >
-          {props.post.likedByMe ? 'Unlike' : 'Like'} • {props.post.likeCount}
-        </button>
-        <button
-          onClick={() => setShowComments((v) => !v)}
-          className="ui-link text-sm"
-        >
-          {showComments ? 'Hide comments' : 'Comments'}
-        </button>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[rgb(var(--ui-border-rgb)_/_0.55)] pt-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => void like()}
+            className="ui-btn rounded-full px-4 py-2"
+            disabled={busyAction === 'like' || !props.currentUser}
+            type="button"
+            title={props.currentUser ? 'Toggle like' : 'Login to like posts'}
+          >
+            {busyAction === 'like' ? 'Saving…' : props.post.likedByMe ? '♥ Liked' : '♡ Like'}
+            <span className="ml-2 ui-system">{props.post.likeCount}</span>
+          </button>
+          <button onClick={() => setShowComments((value) => !value)} className="ui-btn rounded-full px-4 py-2" type="button">
+            {showComments ? 'Hide discussion' : 'View discussion'}
+          </button>
+        </div>
+
+        {!props.currentUser ? (
+          <Link to="/login" className="ui-link text-sm">
+            Login to interact
+          </Link>
+        ) : null}
       </div>
 
-      {showComments ? <CommentsPanel postId={props.post.id} /> : null}
+      {showComments ? <CommentsPanel postId={props.post.id} currentUser={props.currentUser} /> : null}
     </article>
   );
 }

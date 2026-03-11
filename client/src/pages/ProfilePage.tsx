@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { adminApi, authApi, friendsApi, notificationsApi, postsApi, usersApi } from '../lib/api';
-import type { FriendRequestItem, FriendUser, User, UserProfile } from '../lib/types';
+import type { FeedPost, FriendRequestItem, FriendUser, User, UserProfile } from '../lib/types';
 import { requestUnreadRefresh } from '../lib/notificationsSync';
+import { PostCard } from '../components/PostCard';
 import { Timestamp } from '../components/Timestamp';
 
 type Props = {
@@ -10,10 +12,12 @@ type Props = {
   onUserUpdated: (u: User | null) => void;
 };
 
+type ProfileTab = 'posts' | 'about' | 'connections' | 'edit';
+
 export function ProfilePage({ currentUser, onUserUpdated }: Props) {
   const { username } = useParams();
   const navigate = useNavigate();
-  const [items, setItems] = useState<Array<{ id: number; text: string; imageUrl: string | null; likeCount: number; createdAt: string }>>([]);
+  const [items, setItems] = useState<Array<Omit<FeedPost, 'user'>>>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,14 +39,6 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
   const [requestsSentLoadingMore, setRequestsSentLoadingMore] = useState(false);
   const [friendsError, setFriendsError] = useState<string | null>(null);
 
-  const isMe = useMemo(() => {
-    return Boolean(currentUser && username && currentUser.username === username);
-  }, [currentUser, username]);
-
-  const isAdminViewingOther = useMemo(() => {
-    return Boolean(currentUser?.role === 'admin' && username && currentUser.username !== username);
-  }, [currentUser?.role, currentUser?.username, username]);
-
   const [editDisplayName, setEditDisplayName] = useState('');
   const [editStatus, setEditStatus] = useState('');
   const [editBio, setEditBio] = useState('');
@@ -54,6 +50,17 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
   const [adminUser, setAdminUser] = useState<{ isBanned: boolean } | null>(null);
   const [adminUserLoading, setAdminUserLoading] = useState(false);
   const [adminUserError, setAdminUserError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<ProfileTab>('posts');
+
+  const isMe = useMemo(() => Boolean(currentUser && username && currentUser.username === username), [currentUser, username]);
+  const isAdminViewingOther = useMemo(
+    () => Boolean(currentUser?.role === 'admin' && username && currentUser.username !== username),
+    [currentUser?.role, currentUser?.username, username],
+  );
+
+  useEffect(() => {
+    setActiveTab('posts');
+  }, [username]);
 
   const load = async (reset: boolean) => {
     if (!username) return;
@@ -110,11 +117,13 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
           setRequestsSentNextCursor(null);
           return;
         }
+
         const [f, rcv, sent] = await Promise.all([
           friendsApi.listMine({ limit: 20, cursor: null }),
           friendsApi.listRequestsReceived({ limit: 20, cursor: null }),
           friendsApi.listRequestsSent({ limit: 20, cursor: null }),
         ]);
+
         setFriends(f.items);
         setFriendsNextCursor(f.nextCursor);
         setRequestsReceived(rcv.items);
@@ -122,7 +131,6 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
         setRequestsSent(sent.items);
         setRequestsSentNextCursor(sent.nextCursor);
       } else {
-        // Friends list is not viewable for other users.
         setFriends([]);
         setFriendsNextCursor(null);
         setRequestsReceived([]);
@@ -232,460 +240,627 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
     void run();
   }, [profile?.id, isAdminViewingOther]);
 
+  const profilePosts = useMemo(() => {
+    if (!profile) return [] as FeedPost[];
+    return items.map((item) => ({
+      ...item,
+      user: {
+        username: profile.username,
+        displayName: profile.displayName,
+        avatarUrl: profile.avatarUrl,
+      },
+    }));
+  }, [items, profile]);
+
+  const updateProfilePost = (updated: FeedPost) => {
+    setItems((prev) =>
+      prev.map((item) =>
+        item.id === updated.id
+          ? {
+              id: updated.id,
+              text: updated.text,
+              imageUrl: updated.imageUrl,
+              visibility: updated.visibility,
+              likeCount: updated.likeCount,
+              likedByMe: updated.likedByMe,
+              createdAt: updated.createdAt,
+              updatedAt: updated.updatedAt,
+            }
+          : item,
+      ),
+    );
+  };
+
+  const deleteProfilePost = (postId: number) => setItems((prev) => prev.filter((item) => item.id !== postId));
+
+  const relationshipButtons = () => {
+    if (!profile || isMe || !currentUser) return null;
+
+    if (!profile.friendship || profile.friendship.status === 'rejected') {
+      return (
+        <button
+          disabled={friendBusy}
+          onClick={async () => {
+            setProfileError(null);
+            setFriendBusy(true);
+            try {
+              const res = await friendsApi.sendRequest(profile.id);
+              setFriendshipLocal({ status: res.status, actionUserId: currentUser.id });
+              await refreshProfile();
+            } catch (err) {
+              setProfileError(err instanceof Error ? err.message : 'Failed to send friend request');
+            } finally {
+              setFriendBusy(false);
+            }
+          }}
+          className="ui-btn ui-btn-primary rounded-full px-4 py-2 disabled:opacity-50"
+          type="button"
+        >
+          Add friend
+        </button>
+      );
+    }
+
+    if (profile.friendship.status === 'pending' && profile.friendship.actionUserId === currentUser.id) {
+      return (
+        <button
+          disabled={friendBusy}
+          onClick={async () => {
+            setProfileError(null);
+            setFriendBusy(true);
+            try {
+              await friendsApi.cancelRequest(profile.id);
+              setFriendshipLocal(null);
+              await refreshProfile();
+            } catch (err) {
+              setProfileError(err instanceof Error ? err.message : 'Failed to cancel request');
+            } finally {
+              setFriendBusy(false);
+            }
+          }}
+          className="ui-btn rounded-full px-4 py-2 disabled:opacity-50"
+          type="button"
+        >
+          Cancel request
+        </button>
+      );
+    }
+
+    if (profile.friendship.status === 'pending' && profile.friendship.actionUserId !== currentUser.id) {
+      return (
+        <>
+          <button
+            disabled={friendBusy}
+            onClick={async () => {
+              setProfileError(null);
+              setFriendBusy(true);
+              try {
+                await friendsApi.acceptRequest(profile.id);
+                try {
+                  await notificationsApi.markReadByEntity({ entityType: 'user', entityId: profile.id, types: ['friend_request_received'] });
+                  requestUnreadRefresh();
+                } catch {
+                  // Non-fatal
+                }
+                setFriendshipLocal({ status: 'accepted', actionUserId: null });
+                await refreshProfile();
+              } catch (err) {
+                setProfileError(err instanceof Error ? err.message : 'Failed to accept request');
+              } finally {
+                setFriendBusy(false);
+              }
+            }}
+            className="ui-btn ui-btn-primary rounded-full px-4 py-2 disabled:opacity-50"
+            type="button"
+          >
+            Accept
+          </button>
+          <button
+            disabled={friendBusy}
+            onClick={async () => {
+              setProfileError(null);
+              setFriendBusy(true);
+              try {
+                await friendsApi.rejectRequest(profile.id);
+                try {
+                  await notificationsApi.markReadByEntity({ entityType: 'user', entityId: profile.id, types: ['friend_request_received'] });
+                  requestUnreadRefresh();
+                } catch {
+                  // Non-fatal
+                }
+                setFriendshipLocal({ status: 'rejected', actionUserId: null });
+                await refreshProfile();
+              } catch (err) {
+                setProfileError(err instanceof Error ? err.message : 'Failed to reject request');
+              } finally {
+                setFriendBusy(false);
+              }
+            }}
+            className="ui-btn rounded-full px-4 py-2 disabled:opacity-50"
+            type="button"
+          >
+            Reject
+          </button>
+        </>
+      );
+    }
+
+    if (profile.friendship.status === 'accepted') {
+      return (
+        <button
+          disabled={friendBusy}
+          onClick={async () => {
+            if (!confirm('Remove friend?')) return;
+            setProfileError(null);
+            setFriendBusy(true);
+            try {
+              await friendsApi.unfriend(profile.id);
+              setFriendshipLocal(null);
+              await refreshProfile();
+            } catch (err) {
+              setProfileError(err instanceof Error ? err.message : 'Failed to unfriend');
+            } finally {
+              setFriendBusy(false);
+            }
+          }}
+          className="ui-btn rounded-full px-4 py-2 disabled:opacity-50"
+          type="button"
+        >
+          Unfriend
+        </button>
+      );
+    }
+
+    return null;
+  };
+
+  const connectionCard = (
+    title: string,
+    subtitle: string,
+    children: ReactNode,
+    footer?: React.ReactNode,
+  ) => (
+    <div className="ui-panel ui-panel-soft rounded-2xl p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{title}</div>
+          <div className="ui-muted mt-1 text-xs">{subtitle}</div>
+        </div>
+      </div>
+      <div className="mt-4 space-y-2">{children}</div>
+      {footer ? <div className="mt-4">{footer}</div> : null}
+    </div>
+  );
+
+  const personRow = (user: FriendUser, actions: React.ReactNode, helper?: ReactNode) => {
+    const initials = user.displayName?.trim()?.charAt(0) ?? user.username.charAt(0);
+    return (
+      <div key={user.id} className="flex items-center justify-between gap-3 rounded-2xl border border-[rgb(var(--ui-border-rgb)_/_0.6)] bg-white/40 p-3 dark:bg-white/5">
+        <div className="flex min-w-0 items-center gap-3">
+          {user.avatarUrl ? (
+            <img src={user.avatarUrl} alt="Avatar" className="h-11 w-11 rounded-2xl border object-cover" loading="lazy" />
+          ) : (
+            <div className="ui-avatar h-11 w-11 rounded-2xl text-xs uppercase">{initials}</div>
+          )}
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{user.displayName ?? `@${user.username}`}</div>
+            <div className="truncate text-xs text-gray-500 dark:text-gray-400">@{user.username}</div>
+            {helper ? <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">{helper}</div> : null}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">{actions}</div>
+      </div>
+    );
+  };
+
+  const tabs: Array<{ id: ProfileTab; label: string }> = [
+    { id: 'posts', label: 'Posts' },
+    { id: 'about', label: 'About' },
+    ...(isMe ? ([{ id: 'connections', label: 'Connections' }, { id: 'edit', label: 'Edit profile' }] as const) : []),
+  ];
+
+  const profileInitials = profile?.displayName?.trim()?.charAt(0) ?? profile?.username?.charAt(0) ?? 'U';
+
   return (
-    <div className="mx-auto max-w-3xl px-4 py-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">@{username}</h1>
-        <Link to="/" className="text-sm underline">
+    <div className="ui-shell space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="ui-kicker">Profile</div>
+          <h1 className="ui-h1 mt-2">@{username}</h1>
+        </div>
+        <Link to="/" className="ui-btn rounded-full px-4 py-2">
           Back to feed
         </Link>
       </div>
 
-      {profileLoading ? <div className="mt-3 text-sm text-gray-700 dark:text-gray-300">Loading profile…</div> : null}
-      {profileError ? <div className="mt-3 text-sm text-red-600">{profileError}</div> : null}
+      {profileLoading && !profile ? (
+        <div className="ui-hero">
+          <div className="flex items-start gap-4">
+            <div className="ui-skeleton h-20 w-20 rounded-3xl" />
+            <div className="min-w-0 flex-1">
+              <div className="ui-skeleton h-6 w-40" />
+              <div className="ui-skeleton mt-3 h-4 w-56" />
+              <div className="ui-skeleton mt-4 h-20 w-full" />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {profileError ? <div className="ui-error">{profileError}</div> : null}
 
       {profile ? (
-        <div className="mt-4 rounded-lg border bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
-          <div className="flex items-start gap-3">
-            {profile.avatarUrl ? (
-              <img
-                src={profile.avatarUrl}
-                alt="Avatar"
-                className="h-14 w-14 rounded-md border object-cover"
-                loading="lazy"
-              />
-            ) : (
-              <div className="h-14 w-14 rounded-md border bg-gray-50 dark:border-gray-800 dark:bg-gray-950" />
-            )}
-            <div className="min-w-0">
-              <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{profile.displayName ?? `@${profile.username}`}</div>
-              {profile.status ? <div className="mt-0.5 text-sm text-gray-700 dark:text-gray-300">{profile.status}</div> : null}
-              {profile.bio ? <div className="mt-1 whitespace-pre-wrap text-sm text-gray-800 dark:text-gray-200">{profile.bio}</div> : null}
-              {profile.stats ? (
-                <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
-                  Posts {profile.stats.postCount} • Likes received {profile.stats.likesReceived}
-                </div>
-              ) : null}
-              {typeof profile.friendCount === 'number' ? (
-                <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">Friends {profile.friendCount}</div>
-              ) : null}
-              <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">Joined <Timestamp value={profile.createdAt} variant="date" /></div>
+        <>
+          <section className="ui-hero ui-appear-up">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+              <div className="flex min-w-0 flex-1 gap-4">
+                {profile.avatarUrl ? (
+                  <img src={profile.avatarUrl} alt="Avatar" className="h-20 w-20 rounded-3xl border object-cover shadow-lg" loading="lazy" />
+                ) : (
+                  <div className="ui-avatar h-20 w-20 rounded-3xl text-2xl uppercase">{profileInitials}</div>
+                )}
 
-              <div className="mt-3 flex flex-wrap gap-2">
-                {!isMe && currentUser && profile.id ? (
-                  <>
-                    {(!profile.friendship || profile.friendship.status === 'rejected') ? (
-                      <button
-                        disabled={friendBusy}
-                        onClick={async () => {
-                          setProfileError(null);
-                          setFriendBusy(true);
-                          try {
-                            const res = await friendsApi.sendRequest(profile.id);
-                            if (currentUser) {
-                              setFriendshipLocal({ status: res.status, actionUserId: currentUser.id });
-                            }
-                            await refreshProfile();
-                          } catch (err) {
-                            setProfileError(err instanceof Error ? err.message : 'Failed to send friend request');
-                          } finally {
-                            setFriendBusy(false);
-                          }
-                        }}
-                        className="rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-gray-50 disabled:opacity-50 dark:border-gray-800 dark:hover:bg-gray-800"
-                        type="button"
-                      >
-                        Add friend
-                      </button>
-                    ) : null}
-
-                    {profile.friendship?.status === 'pending' && profile.friendship.actionUserId === currentUser.id ? (
-                      <button
-                        disabled={friendBusy}
-                        onClick={async () => {
-                          setProfileError(null);
-                          setFriendBusy(true);
-                          try {
-                            await friendsApi.cancelRequest(profile.id);
-                            setFriendshipLocal(null);
-                            await refreshProfile();
-                          } catch (err) {
-                            setProfileError(err instanceof Error ? err.message : 'Failed to cancel request');
-                          } finally {
-                            setFriendBusy(false);
-                          }
-                        }}
-                        className="rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-gray-50 disabled:opacity-50 dark:border-gray-800 dark:hover:bg-gray-800"
-                        type="button"
-                      >
-                        Cancel request
-                      </button>
-                    ) : null}
-
-                    {profile.friendship?.status === 'pending' && profile.friendship.actionUserId !== currentUser.id ? (
-                      <>
-                        <button
-                          disabled={friendBusy}
-                          onClick={async () => {
-                            setProfileError(null);
-                            setFriendBusy(true);
-                            try {
-                              await friendsApi.acceptRequest(profile.id);
-                              try {
-                                await notificationsApi.markReadByEntity({
-                                  entityType: 'user',
-                                  entityId: profile.id,
-                                  types: ['friend_request_received'],
-                                });
-                                requestUnreadRefresh();
-                              } catch {
-                                // Non-fatal
-                              }
-                              setFriendshipLocal({ status: 'accepted', actionUserId: null });
-                              await refreshProfile();
-                            } catch (err) {
-                              setProfileError(err instanceof Error ? err.message : 'Failed to accept request');
-                            } finally {
-                              setFriendBusy(false);
-                            }
-                          }}
-                          className="rounded-md bg-gray-900 px-3 py-1.5 text-sm text-white transition-colors disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900"
-                          type="button"
-                        >
-                          Accept
-                        </button>
-                        <button
-                          disabled={friendBusy}
-                          onClick={async () => {
-                            setProfileError(null);
-                            setFriendBusy(true);
-                            try {
-                              await friendsApi.rejectRequest(profile.id);
-                              try {
-                                await notificationsApi.markReadByEntity({
-                                  entityType: 'user',
-                                  entityId: profile.id,
-                                  types: ['friend_request_received'],
-                                });
-                                requestUnreadRefresh();
-                              } catch {
-                                // Non-fatal
-                              }
-                              setFriendshipLocal({ status: 'rejected', actionUserId: null });
-                              await refreshProfile();
-                            } catch (err) {
-                              setProfileError(err instanceof Error ? err.message : 'Failed to reject request');
-                            } finally {
-                              setFriendBusy(false);
-                            }
-                          }}
-                          className="rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-gray-50 disabled:opacity-50 dark:border-gray-800 dark:hover:bg-gray-800"
-                          type="button"
-                        >
-                          Reject
-                        </button>
-                      </>
-                    ) : null}
-
-                    {profile.friendship?.status === 'accepted' ? (
-                      <button
-                        disabled={friendBusy}
-                        onClick={async () => {
-                          if (!confirm('Remove friend?')) return;
-                          setProfileError(null);
-                          setFriendBusy(true);
-                          try {
-                            await friendsApi.unfriend(profile.id);
-                            setFriendshipLocal(null);
-                            await refreshProfile();
-                          } catch (err) {
-                            setProfileError(err instanceof Error ? err.message : 'Failed to unfriend');
-                          } finally {
-                            setFriendBusy(false);
-                          }
-                        }}
-                        className="rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-gray-50 disabled:opacity-50 dark:border-gray-800 dark:hover:bg-gray-800"
-                        type="button"
-                      >
-                        Unfriend
-                      </button>
-                    ) : null}
-                  </>
-                ) : null}
-
-                {isAdminViewingOther ? (
+                <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    {adminUserLoading ? <div className="text-xs text-gray-600">Loading admin tools…</div> : null}
-                    {adminUserError ? <div className="text-xs text-red-600">{adminUserError}</div> : null}
+                    <h2 className="truncate text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100">
+                      {profile.displayName ?? `@${profile.username}`}
+                    </h2>
+                    {isMe ? <span className="ui-badge">Your profile</span> : null}
+                    {profile.friendship?.status === 'accepted' ? <span className="ui-badge">Friends</span> : null}
+                    {adminUser?.isBanned ? <span className="ui-badge">Banned</span> : null}
+                  </div>
+                  <div className="mt-1 text-sm text-gray-500 dark:text-gray-400">@{profile.username}</div>
+                  {profile.status ? <div className="mt-3 text-sm font-medium text-gray-800 dark:text-gray-200">{profile.status}</div> : null}
+                  {profile.bio ? <div className="mt-3 max-w-2xl whitespace-pre-wrap text-sm leading-6 text-gray-700 dark:text-gray-300">{profile.bio}</div> : null}
+                  <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                    <span className="ui-badge">Joined <Timestamp value={profile.createdAt} variant="date" /></span>
+                    {typeof profile.friendCount === 'number' ? <span className="ui-badge">{profile.friendCount} friends</span> : null}
+                  </div>
+                </div>
+              </div>
 
-                    {adminUser ? (
+              <div className="flex w-full flex-col gap-2 lg:w-auto lg:min-w-[16rem]">
+                <div className="flex flex-wrap gap-2">
+                  {relationshipButtons()}
+                  {isMe ? (
+                    <button type="button" className="ui-btn rounded-full px-4 py-2" onClick={() => setActiveTab('edit')}>
+                      Edit profile
+                    </button>
+                  ) : null}
+                </div>
+                {isAdminViewingOther ? (
+                  <div className="rounded-2xl border border-[rgb(var(--ui-border-rgb)_/_0.62)] bg-white/40 p-3 text-sm dark:bg-white/5">
+                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">Admin tools</div>
+                    {adminUserLoading ? <div className="ui-muted mt-2 text-xs">Loading admin tools…</div> : null}
+                    {adminUserError ? <div className="ui-error mt-2">{adminUserError}</div> : null}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {adminUser ? (
+                        <button
+                          onClick={async () => {
+                            try {
+                              const next = !adminUser.isBanned;
+                              await adminApi.setUserBanned(profile.id, next);
+                              setAdminUser({ isBanned: next });
+                            } catch (err) {
+                              setAdminUserError(err instanceof Error ? err.message : 'Failed to update ban');
+                            }
+                          }}
+                          className="ui-btn rounded-full px-4 py-2"
+                          type="button"
+                        >
+                          {adminUser.isBanned ? 'Unban user' : 'Ban user'}
+                        </button>
+                      ) : null}
                       <button
                         onClick={async () => {
+                          if (!confirm('Delete this user? This will delete their posts, comments, and likes.')) return;
                           try {
-                            const next = !adminUser.isBanned;
-                            await adminApi.setUserBanned(profile.id, next);
-                            setAdminUser({ isBanned: next });
+                            await adminApi.deleteUser(profile.id);
+                            navigate('/');
                           } catch (err) {
-                            setAdminUserError(err instanceof Error ? err.message : 'Failed to update ban');
+                            setAdminUserError(err instanceof Error ? err.message : 'Failed to delete user');
                           }
                         }}
-                        className="rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800"
+                        className="ui-btn rounded-full px-4 py-2"
                         type="button"
                       >
-                        {adminUser.isBanned ? 'Unban user' : 'Ban user'}
+                        Delete user
                       </button>
-                    ) : null}
-
-                    <button
-                      onClick={async () => {
-                        if (!confirm('Delete this user? This will delete their posts, comments, and likes.')) return;
-                        try {
-                          await adminApi.deleteUser(profile.id);
-                          navigate('/');
-                        } catch (err) {
-                          setAdminUserError(err instanceof Error ? err.message : 'Failed to delete user');
-                        }
-                      }}
-                      className="rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800"
-                      type="button"
-                    >
-                      Delete user
-                    </button>
+                    </div>
                   </div>
                 ) : null}
               </div>
             </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <div className="ui-stat ui-appear-up">
+                <div className="ui-stat-value">{profile.stats?.postCount ?? items.length}</div>
+                <div className="ui-stat-label">Posts</div>
+              </div>
+              <div className="ui-stat ui-appear-up" style={{ animationDelay: '45ms' }}>
+                <div className="ui-stat-value">{profile.stats?.likesReceived ?? 0}</div>
+                <div className="ui-stat-label">Likes received</div>
+              </div>
+              <div className="ui-stat ui-appear-up" style={{ animationDelay: '90ms' }}>
+                <div className="ui-stat-value">{typeof profile.friendCount === 'number' ? profile.friendCount : 0}</div>
+                <div className="ui-stat-label">Connections</div>
+              </div>
+            </div>
+          </section>
+
+          <div className="ui-tabbar">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`ui-tab ${activeTab === tab.id ? 'ui-tab-active' : ''}`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
 
-          {isMe ? (
-            <div className="mt-4 border-t pt-4">
-              <div className="text-sm font-semibold">Friends</div>
-              {friendsLoading ? <div className="mt-2 text-sm text-gray-700 dark:text-gray-300">Loading friends…</div> : null}
-              {friendsError ? <div className="mt-2 text-sm text-red-600">{friendsError}</div> : null}
-              {!currentUser ? <div className="mt-2 text-sm text-gray-700 dark:text-gray-300">Login to view friends and requests.</div> : null}
-
-              <div className="mt-3">
-                <div className="text-xs text-gray-600 dark:text-gray-400">Accepted ({friends.length})</div>
-                <div className="mt-2 grid gap-2">
-                  {friends.map((u) => (
-                    <div key={u.id} className="flex items-center justify-between rounded-md border bg-white p-2 dark:border-gray-800 dark:bg-gray-900">
-                      <div className="flex min-w-0 items-center gap-2">
-                        {u.avatarUrl ? (
-                          <img src={u.avatarUrl} alt="Avatar" className="h-8 w-8 rounded-md border object-cover" loading="lazy" />
-                        ) : (
-                          <div className="h-8 w-8 rounded-md border bg-gray-50 dark:border-gray-800 dark:bg-gray-950" />
-                        )}
-                        <div className="min-w-0">
-                          <div className="truncate text-sm text-gray-900 dark:text-gray-100">{u.displayName ?? `@${u.username}`}</div>
-                          <div className="truncate text-xs text-gray-500 dark:text-gray-400">@{u.username}</div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Link to={`/u/${encodeURIComponent(u.username)}`} className="text-sm text-gray-700 underline dark:text-gray-300">
-                          View
-                        </Link>
-                        <button
-                          disabled={friendBusy}
-                          onClick={async () => {
-                            if (!confirm('Remove friend?')) return;
-                            setFriendBusy(true);
-                            setFriendsError(null);
-                            try {
-                              await friendsApi.unfriend(u.id);
-                              await Promise.all([refreshProfile(), loadFriendsSection()]);
-                            } catch (err) {
-                              setFriendsError(err instanceof Error ? err.message : 'Failed to unfriend');
-                            } finally {
-                              setFriendBusy(false);
-                            }
-                          }}
-                          className="rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-gray-50 disabled:opacity-50 dark:border-gray-800 dark:hover:bg-gray-800"
-                          type="button"
-                        >
-                          Unfriend
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                  {friends.length === 0 && !friendsLoading && currentUser ? (
-                    <div className="text-sm text-gray-700 dark:text-gray-300">No friends yet.</div>
-                  ) : null}
+          {activeTab === 'posts' ? (
+            <section className="space-y-3">
+              {error ? <div className="ui-error">{error}</div> : null}
+              {profilePosts.length === 0 && !loading ? (
+                <div className="ui-empty">
+                  <div className="ui-empty-icon">🗂️</div>
+                  <h2 className="ui-h2">No posts yet</h2>
+                  <p className="ui-muted mx-auto mt-2 max-w-md text-sm">
+                    {isMe ? 'Your posts will appear here once you share your first update.' : `${profile.displayName ?? `@${profile.username}`} has not posted yet.`}
+                  </p>
                 </div>
+              ) : null}
 
-                <div className="mt-3 flex justify-center">
+              {profilePosts.map((post, index) => (
+                <div key={post.id} className="ui-appear-up" style={{ animationDelay: `${Math.min(index * 40, 200)}ms` }}>
+                  <PostCard post={post} currentUser={currentUser} onChange={updateProfilePost} onDelete={deleteProfilePost} />
+                </div>
+              ))}
+
+              {profilePosts.length > 0 ? (
+                <div className="flex justify-center pt-2">
+                  <button
+                    disabled={loading || !nextCursor}
+                    onClick={() => void load(false)}
+                    className="ui-btn rounded-full px-5 py-2.5 disabled:opacity-50"
+                    type="button"
+                  >
+                    {nextCursor ? (loading ? 'Loading…' : 'Load more posts') : 'No more posts'}
+                  </button>
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+
+          {activeTab === 'about' ? (
+            <section className="grid gap-4 lg:grid-cols-[1.35fr_0.95fr]">
+              <div className="ui-panel ui-panel-soft rounded-2xl p-5">
+                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">About</div>
+                <div className="mt-4 space-y-4 text-sm text-gray-700 dark:text-gray-300">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">Status</div>
+                    <div className="mt-2">{profile.status || 'No status set yet.'}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">Bio</div>
+                    <div className="mt-2 whitespace-pre-wrap">{profile.bio || 'No bio provided yet.'}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="ui-panel ui-panel-soft rounded-2xl p-5">
+                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">Highlights</div>
+                <div className="mt-4 grid gap-3">
+                  <div className="ui-stat">
+                    <div className="ui-stat-value">
+                      <Timestamp value={profile.createdAt} variant="date" />
+                    </div>
+                    <div className="ui-stat-label">Joined</div>
+                  </div>
+                  <div className="ui-stat">
+                    <div className="ui-stat-value">{profile.stats?.likesReceived ?? 0}</div>
+                    <div className="ui-stat-label">Total likes received</div>
+                  </div>
+                  <div className="ui-stat">
+                    <div className="ui-stat-value">{profile.friendship?.status ?? (isMe ? 'self' : 'not connected')}</div>
+                    <div className="ui-stat-label">Relationship</div>
+                  </div>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          {activeTab === 'connections' && isMe ? (
+            <section className="space-y-4">
+              {friendsError ? <div className="ui-error">{friendsError}</div> : null}
+              {friendsLoading ? <div className="ui-panel ui-panel-soft rounded-2xl p-4 text-sm text-gray-700 dark:text-gray-300">Loading connections…</div> : null}
+
+              <div className="grid gap-4 xl:grid-cols-3">
+                {connectionCard(
+                  `Friends (${friends.length})`,
+                  'People you are already connected with.',
+                  friends.length > 0
+                    ? friends.map((u) =>
+                        personRow(
+                          u,
+                          <>
+                            <Link to={`/u/${encodeURIComponent(u.username)}`} className="ui-btn rounded-full px-3 py-1.5 text-xs">
+                              View
+                            </Link>
+                            <button
+                              disabled={friendBusy}
+                              onClick={async () => {
+                                if (!confirm('Remove friend?')) return;
+                                setFriendBusy(true);
+                                setFriendsError(null);
+                                try {
+                                  await friendsApi.unfriend(u.id);
+                                  await Promise.all([refreshProfile(), loadFriendsSection()]);
+                                } catch (err) {
+                                  setFriendsError(err instanceof Error ? err.message : 'Failed to unfriend');
+                                } finally {
+                                  setFriendBusy(false);
+                                }
+                              }}
+                              className="ui-btn rounded-full px-3 py-1.5 text-xs disabled:opacity-50"
+                              type="button"
+                            >
+                              Unfriend
+                            </button>
+                          </>,
+                          u.status ?? undefined,
+                        ),
+                      )
+                    : <div className="text-sm text-gray-700 dark:text-gray-300">No friends yet.</div>,
                   <button
                     disabled={!friendsNextCursor || friendsLoadingMore}
                     onClick={() => void loadMoreFriends()}
-                    className="rounded-md border bg-white px-4 py-2 text-sm transition-colors disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:bg-gray-800"
+                    className="ui-btn rounded-full px-4 py-2 disabled:opacity-50"
                     type="button"
                   >
                     {friendsNextCursor ? (friendsLoadingMore ? 'Loading…' : 'Load more') : 'No more'}
-                  </button>
-                </div>
-              </div>
+                  </button>,
+                )}
 
-              {currentUser ? (
-              <div className="mt-4 grid gap-4">
-                <div>
-                  <div className="text-xs text-gray-600 dark:text-gray-400">Requests received ({requestsReceived.length})</div>
-                  <div className="mt-2 grid gap-2">
-                    {requestsReceived.map((r) => (
-                      <div key={r.user.id} className="flex items-center justify-between rounded-md border bg-white p-2 dark:border-gray-800 dark:bg-gray-900">
-                        <div className="flex min-w-0 items-center gap-2">
-                          {r.user.avatarUrl ? (
-                            <img src={r.user.avatarUrl} alt="Avatar" className="h-8 w-8 rounded-md border object-cover" loading="lazy" />
-                          ) : (
-                            <div className="h-8 w-8 rounded-md border bg-gray-50 dark:border-gray-800 dark:bg-gray-950" />
-                          )}
-                          <div className="min-w-0">
-                            <div className="truncate text-sm text-gray-900 dark:text-gray-100">{r.user.displayName ?? `@${r.user.username}`}</div>
-                            <div className="truncate text-xs text-gray-500 dark:text-gray-400">@{r.user.username}</div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
+                {connectionCard(
+                  `Requests received (${requestsReceived.length})`,
+                  'Respond to incoming requests here.',
+                  requestsReceived.length > 0
+                    ? requestsReceived.map((request) =>
+                        personRow(
+                          request.user,
+                          <>
+                            <button
+                              disabled={friendBusy}
+                              onClick={async () => {
+                                setFriendBusy(true);
+                                setFriendsError(null);
+                                try {
+                                  await friendsApi.acceptRequest(request.user.id);
+                                  try {
+                                    await notificationsApi.markReadByEntity({
+                                      entityType: 'user',
+                                      entityId: request.user.id,
+                                      types: ['friend_request_received'],
+                                    });
+                                    requestUnreadRefresh();
+                                  } catch {
+                                    // Non-fatal
+                                  }
+                                  await Promise.all([refreshProfile(), loadFriendsSection()]);
+                                } catch (err) {
+                                  setFriendsError(err instanceof Error ? err.message : 'Failed to accept request');
+                                } finally {
+                                  setFriendBusy(false);
+                                }
+                              }}
+                              className="ui-btn ui-btn-primary rounded-full px-3 py-1.5 text-xs disabled:opacity-50"
+                              type="button"
+                            >
+                              Accept
+                            </button>
+                            <button
+                              disabled={friendBusy}
+                              onClick={async () => {
+                                setFriendBusy(true);
+                                setFriendsError(null);
+                                try {
+                                  await friendsApi.rejectRequest(request.user.id);
+                                  try {
+                                    await notificationsApi.markReadByEntity({
+                                      entityType: 'user',
+                                      entityId: request.user.id,
+                                      types: ['friend_request_received'],
+                                    });
+                                    requestUnreadRefresh();
+                                  } catch {
+                                    // Non-fatal
+                                  }
+                                  await Promise.all([refreshProfile(), loadFriendsSection()]);
+                                } catch (err) {
+                                  setFriendsError(err instanceof Error ? err.message : 'Failed to reject request');
+                                } finally {
+                                  setFriendBusy(false);
+                                }
+                              }}
+                              className="ui-btn rounded-full px-3 py-1.5 text-xs disabled:opacity-50"
+                              type="button"
+                            >
+                              Reject
+                            </button>
+                          </>,
+                          <Timestamp value={request.createdAt} />,
+                        ),
+                      )
+                    : <div className="text-sm text-gray-700 dark:text-gray-300">No received requests.</div>,
+                  <button
+                    disabled={!requestsReceivedNextCursor || requestsReceivedLoadingMore}
+                    onClick={() => void loadMoreRequestsReceived()}
+                    className="ui-btn rounded-full px-4 py-2 disabled:opacity-50"
+                    type="button"
+                  >
+                    {requestsReceivedNextCursor ? (requestsReceivedLoadingMore ? 'Loading…' : 'Load more') : 'No more'}
+                  </button>,
+                )}
+
+                {connectionCard(
+                  `Requests sent (${requestsSent.length})`,
+                  'Pending invites waiting on a response.',
+                  requestsSent.length > 0
+                    ? requestsSent.map((request) =>
+                        personRow(
+                          request.user,
                           <button
                             disabled={friendBusy}
                             onClick={async () => {
                               setFriendBusy(true);
                               setFriendsError(null);
                               try {
-                                await friendsApi.acceptRequest(r.user.id);
-                                try {
-                                  await notificationsApi.markReadByEntity({
-                                    entityType: 'user',
-                                    entityId: r.user.id,
-                                    types: ['friend_request_received'],
-                                  });
-                                  requestUnreadRefresh();
-                                } catch {
-                                  // Non-fatal
-                                }
+                                await friendsApi.cancelRequest(request.user.id);
                                 await Promise.all([refreshProfile(), loadFriendsSection()]);
                               } catch (err) {
-                                setFriendsError(err instanceof Error ? err.message : 'Failed to accept request');
+                                setFriendsError(err instanceof Error ? err.message : 'Failed to cancel request');
                               } finally {
                                 setFriendBusy(false);
                               }
                             }}
-                            className="rounded-md bg-gray-900 px-3 py-1.5 text-sm text-white transition-colors disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900"
+                            className="ui-btn rounded-full px-3 py-1.5 text-xs disabled:opacity-50"
                             type="button"
                           >
-                            Accept
-                          </button>
-                          <button
-                            disabled={friendBusy}
-                            onClick={async () => {
-                              setFriendBusy(true);
-                              setFriendsError(null);
-                              try {
-                                await friendsApi.rejectRequest(r.user.id);
-                                try {
-                                  await notificationsApi.markReadByEntity({
-                                    entityType: 'user',
-                                    entityId: r.user.id,
-                                    types: ['friend_request_received'],
-                                  });
-                                  requestUnreadRefresh();
-                                } catch {
-                                  // Non-fatal
-                                }
-                                await Promise.all([refreshProfile(), loadFriendsSection()]);
-                              } catch (err) {
-                                setFriendsError(err instanceof Error ? err.message : 'Failed to reject request');
-                              } finally {
-                                setFriendBusy(false);
-                              }
-                            }}
-                            className="rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-gray-50 disabled:opacity-50 dark:border-gray-800 dark:hover:bg-gray-800"
-                            type="button"
-                          >
-                            Reject
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                    {requestsReceived.length === 0 && !friendsLoading ? (
-                      <div className="text-sm text-gray-700 dark:text-gray-300">No received requests.</div>
-                    ) : null}
-                  </div>
-
-                  <div className="mt-3 flex justify-center">
-                    <button
-                      disabled={!requestsReceivedNextCursor || requestsReceivedLoadingMore}
-                      onClick={() => void loadMoreRequestsReceived()}
-                      className="rounded-md border bg-white px-4 py-2 text-sm transition-colors disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:bg-gray-800"
-                      type="button"
-                    >
-                      {requestsReceivedNextCursor ? (requestsReceivedLoadingMore ? 'Loading…' : 'Load more') : 'No more'}
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="text-xs text-gray-600 dark:text-gray-400">Requests sent ({requestsSent.length})</div>
-                  <div className="mt-2 grid gap-2">
-                    {requestsSent.map((r) => (
-                      <div key={r.user.id} className="flex items-center justify-between rounded-md border bg-white p-2 dark:border-gray-800 dark:bg-gray-900">
-                        <div className="flex min-w-0 items-center gap-2">
-                          {r.user.avatarUrl ? (
-                            <img src={r.user.avatarUrl} alt="Avatar" className="h-8 w-8 rounded-md border object-cover" loading="lazy" />
-                          ) : (
-                            <div className="h-8 w-8 rounded-md border bg-gray-50 dark:border-gray-800 dark:bg-gray-950" />
-                          )}
-                          <div className="min-w-0">
-                            <div className="truncate text-sm text-gray-900 dark:text-gray-100">{r.user.displayName ?? `@${r.user.username}`}</div>
-                            <div className="truncate text-xs text-gray-500 dark:text-gray-400">@{r.user.username}</div>
-                          </div>
-                        </div>
-                        <button
-                          disabled={friendBusy}
-                          onClick={async () => {
-                            setFriendBusy(true);
-                            setFriendsError(null);
-                            try {
-                              await friendsApi.cancelRequest(r.user.id);
-                              await Promise.all([refreshProfile(), loadFriendsSection()]);
-                            } catch (err) {
-                              setFriendsError(err instanceof Error ? err.message : 'Failed to cancel request');
-                            } finally {
-                              setFriendBusy(false);
-                            }
-                          }}
-                          className="rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-gray-50 disabled:opacity-50 dark:border-gray-800 dark:hover:bg-gray-800"
-                          type="button"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    ))}
-                    {requestsSent.length === 0 && !friendsLoading ? (
-                      <div className="text-sm text-gray-700 dark:text-gray-300">No sent requests.</div>
-                    ) : null}
-                  </div>
-
-                  <div className="mt-3 flex justify-center">
-                    <button
-                      disabled={!requestsSentNextCursor || requestsSentLoadingMore}
-                      onClick={() => void loadMoreRequestsSent()}
-                      className="rounded-md border bg-white px-4 py-2 text-sm transition-colors disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:bg-gray-800"
-                      type="button"
-                    >
-                      {requestsSentNextCursor ? (requestsSentLoadingMore ? 'Loading…' : 'Load more') : 'No more'}
-                    </button>
-                  </div>
-                </div>
+                            Cancel
+                          </button>,
+                          <Timestamp value={request.createdAt} />,
+                        ),
+                      )
+                    : <div className="text-sm text-gray-700 dark:text-gray-300">No sent requests.</div>,
+                  <button
+                    disabled={!requestsSentNextCursor || requestsSentLoadingMore}
+                    onClick={() => void loadMoreRequestsSent()}
+                    className="ui-btn rounded-full px-4 py-2 disabled:opacity-50"
+                    type="button"
+                  >
+                    {requestsSentNextCursor ? (requestsSentLoadingMore ? 'Loading…' : 'Load more') : 'No more'}
+                  </button>,
+                )}
               </div>
-              ) : null}
-            </div>
+            </section>
           ) : null}
 
-          {isMe ? (
-            <div className="mt-4 border-t pt-4">
-              <div className="text-sm font-semibold">Edit profile</div>
-              {saveError ? <div className="ui-error mt-2">{saveError}</div> : null}
-              {saveOk ? <div className="mt-2 text-sm text-emerald-700 dark:text-emerald-300">Saved</div> : null}
+          {activeTab === 'edit' && isMe ? (
+            <section className="ui-panel ui-panel-soft rounded-2xl p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">Edit profile</div>
+                  <div className="ui-muted mt-1 text-sm">Update how you appear around the app.</div>
+                </div>
+                {saveOk ? <span className="ui-badge text-emerald-700 dark:text-emerald-300">Saved</span> : null}
+              </div>
 
-              <div className="mt-3 grid gap-3">
+              {saveError ? <div className="ui-error mt-4">{saveError}</div> : null}
+
+              <div className="mt-4 grid gap-4 lg:grid-cols-2">
                 <label className="grid gap-1">
                   <div className="text-xs text-gray-600 dark:text-gray-400">Display name</div>
                   <input
@@ -712,7 +887,7 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
                   />
                 </label>
 
-                <label className="grid gap-1">
+                <label className="grid gap-1 lg:col-span-2">
                   <div className="text-xs text-gray-600 dark:text-gray-400">Bio</div>
                   <textarea
                     value={editBio}
@@ -720,12 +895,12 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
                       setEditBio(e.target.value);
                       setSaveOk(false);
                     }}
-                    className="ui-textarea min-h-24"
+                    className="ui-textarea min-h-28"
                     placeholder="Tell people about yourself"
                   />
                 </label>
 
-                <label className="grid gap-1">
+                <label className="grid gap-1 lg:col-span-2">
                   <div className="text-xs text-gray-600 dark:text-gray-400">Avatar URL</div>
                   <input
                     value={editAvatarUrl}
@@ -737,72 +912,42 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
                     placeholder="https://…"
                   />
                 </label>
-
-                <div className="flex items-center justify-end gap-2">
-                  <button
-                    disabled={saving}
-                    onClick={async () => {
-                      setSaving(true);
-                      setSaveError(null);
-                      setSaveOk(false);
-                      try {
-                        const updated = await authApi.updateMe({
-                          displayName: editDisplayName,
-                          status: editStatus,
-                          bio: editBio,
-                          avatarUrl: editAvatarUrl,
-                        });
-
-                        onUserUpdated(updated);
-                        setProfile(updated);
-                        setSaveOk(true);
-                      } catch (err) {
-                        setSaveError(err instanceof Error ? err.message : 'Failed to save');
-                      } finally {
-                        setSaving(false);
-                      }
-                    }}
-                    className="ui-btn ui-btn-primary px-4 py-2 disabled:opacity-50"
-                  >
-                    {saving ? 'Saving…' : 'Save'}
-                  </button>
-                </div>
               </div>
-            </div>
+
+              <div className="mt-5 flex justify-end">
+                <button
+                  disabled={saving}
+                  onClick={async () => {
+                    setSaving(true);
+                    setSaveError(null);
+                    setSaveOk(false);
+                    try {
+                      const updated = await authApi.updateMe({
+                        displayName: editDisplayName,
+                        status: editStatus,
+                        bio: editBio,
+                        avatarUrl: editAvatarUrl,
+                      });
+
+                      onUserUpdated(updated);
+                      setProfile(updated);
+                      setSaveOk(true);
+                    } catch (err) {
+                      setSaveError(err instanceof Error ? err.message : 'Failed to save');
+                    } finally {
+                      setSaving(false);
+                    }
+                  }}
+                  className="ui-btn ui-btn-primary rounded-full px-5 py-2.5 disabled:opacity-50"
+                  type="button"
+                >
+                  {saving ? 'Saving…' : 'Save changes'}
+                </button>
+              </div>
+            </section>
           ) : null}
-        </div>
+        </>
       ) : null}
-
-      {error ? <div className="ui-error mt-4">{error}</div> : null}
-
-      <div className="mt-4 flex flex-col gap-3">
-        {items.map((p) => (
-          <article key={p.id} className="ui-panel ui-panel-soft p-3">
-            <div className="ui-muted text-xs">
-              <Timestamp value={p.createdAt} />
-            </div>
-            {p.text ? (
-              <div className="mt-1 whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100">{p.text}</div>
-            ) : null}
-            {p.imageUrl ? (
-              <div className="mt-2">
-                <img src={p.imageUrl} alt="Post" className="max-h-96 w-full rounded-md border object-contain" loading="lazy" />
-              </div>
-            ) : null}
-            <div className="ui-muted mt-2 text-sm">Likes: {p.likeCount}</div>
-          </article>
-        ))}
-      </div>
-
-      <div className="mt-6 flex justify-center">
-        <button
-          disabled={loading || !nextCursor}
-          onClick={() => void load(false)}
-          className="ui-btn px-4 py-2 disabled:opacity-50"
-        >
-          {nextCursor ? (loading ? 'Loading…' : 'Load more') : 'No more'}
-        </button>
-      </div>
     </div>
   );
 }

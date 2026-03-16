@@ -16,6 +16,36 @@ Core features:
 ## Prereqs
 - Node.js 18+ recommended
 
+## Runtime Requirements
+This project is intended to run on common desktop operating systems including macOS, Linux, and Windows, provided that the required tooling is installed. Cross-platform compatibility is expected, but it should not be treated as guaranteed on every environment without verification.
+
+Required software:
+- Node.js 18 or later
+- npm
+- A modern web browser
+
+Optional software:
+- Docker and Docker Compose, if running the containerized setup instead of local Node.js processes
+
+Possible build tooling requirement:
+- Python 3, `make`, and a C/C++ compiler may be required on some systems when installing the `sqlite3` dependency from source
+
+Environment requirements:
+- `server/.env` must be configured
+- `client/.env` must be configured
+- Required server and client environment variables must be set correctly
+
+System requirements:
+- Port `4000` should be available for the backend server
+- Port `5173` should be available for the frontend development server
+- The machine must allow local file creation and write access because the application uses SQLite for local database storage
+
+Functional capability requirements:
+- The backend server must be able to start and run migrations
+- The frontend must be able to connect to the backend API
+- The frontend must be able to connect to the Socket.IO realtime service
+- The application must be able to read from and write to the local SQLite database
+
 ## Quickstart (clone → setup → seed → run)
 1) Install deps: `npm install`
 2) Setup env files:
@@ -51,6 +81,116 @@ Core features:
 
 ## Seed only an admin user (optional)
 - `npm -w server run seed:admin`
+
+## ER Model
+Main entities:
+- `users`
+- `sessions`
+- `posts`
+- `comments`
+- `likes`
+- `friendships`
+- `notifications`
+
+Main relationships:
+- One user can have many sessions
+- One user can create many posts
+- One user can write many comments
+- One post can have many comments
+- Users and posts have a many-to-many relationship through likes
+- Users have a many-to-many self-relationship through friendships
+- One user can receive many notifications
+- One user can also act as the triggering user for many notifications
+
+```mermaid
+erDiagram
+    USERS ||--o{ SESSIONS : has
+    USERS ||--o{ POSTS : creates
+    USERS ||--o{ COMMENTS : writes
+    POSTS ||--o{ COMMENTS : receives
+    USERS ||--o{ LIKES : gives
+    POSTS ||--o{ LIKES : receives
+    USERS ||--o{ NOTIFICATIONS : receives
+    USERS ||--o{ NOTIFICATIONS : triggers
+    USERS ||--o{ FRIENDSHIPS : user1
+    USERS ||--o{ FRIENDSHIPS : user2
+
+    USERS {
+        int id PK
+        string username UK
+        string password_hash
+        string role
+        string display_name
+        string bio
+        string avatar_url
+        string status_text
+        int is_banned
+        datetime created_at
+    }
+
+    SESSIONS {
+        string id PK
+        int user_id FK
+        string refresh_token_hash
+        datetime created_at
+        datetime last_used_at
+        datetime expires_at
+        string user_agent
+        string ip
+    }
+
+    POSTS {
+        int id PK
+        int user_id FK
+        string text
+        string image_url
+        int like_count
+        string visibility
+        datetime created_at
+        datetime updated_at
+    }
+
+    COMMENTS {
+        int id PK
+        int post_id FK
+        int user_id FK
+        string text
+        datetime created_at
+    }
+
+    LIKES {
+        int user_id PK
+        int post_id PK
+        datetime created_at
+    }
+
+    FRIENDSHIPS {
+        int user_id1 PK
+        int user_id2 PK
+        string status
+        int action_user_id FK
+        datetime created_at
+        datetime updated_at
+    }
+
+    NOTIFICATIONS {
+        int id PK
+        int user_id FK
+        string type
+        int actor_user_id FK
+        string entity_type
+        int entity_id
+        int is_read
+        datetime created_at
+    }
+```
+
+Design notes:
+- `likes` is the associative table between users and posts
+- `friendships` is a self-referencing associative table between two users
+- `friendships` stores one row per user pair using the `user_id1 < user_id2` rule
+- `notifications.entity_type` and `entity_id` are polymorphic references and are not enforced as direct foreign keys
+- The `migrations` table exists for schema management and is not part of the business ER model
 
 ## Key endpoints
 - Auth: `POST /api/auth/signup`, `POST /api/auth/login`, `POST /api/auth/refresh`, `POST /api/auth/logout`

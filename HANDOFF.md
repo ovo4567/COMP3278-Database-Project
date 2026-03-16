@@ -1,177 +1,272 @@
-# Handoff (for next AI agent)
+# Project Handoff
 
-## What this repo is
-- Monorepo (npm workspaces): `server/` (Express + TypeScript + SQLite) + `client/` (Vite React TS + Tailwind)
-- Current state: full local social app with posts/likes/comments, **friend system**, **post visibility** (`public|friends`), **in-app notifications**, **search**, **admin analytics + read-only SQL console**, and **dark mode**.
+## 1. Project Summary
+This project is a demo-ready social media app built with:
+- Frontend: React + Vite + TypeScript + Tailwind
+- Backend: Express + TypeScript
+- Database: SQLite
+- Realtime: Socket.IO
 
-## Quick start
-- Install: `npm install`
-- Seed demo data (deterministic; resets DB by default): `npm -w server run seed:test`
-- Run both: `npm run dev`
-  - API: `http://localhost:4000`
-  - Web: `http://localhost:5173`
-- Health check: `GET /health` → `{ ok: true }`
+Main features currently implemented:
+- User signup/login with access and refresh tokens
+- Feed with posts, likes, and comments
+- Friends system
+- Post visibility controls (`public`, `friends`)
+- Notifications with unread badge
+- Search for users and posts
+- Admin dashboard and read-only SQL console
+- Realtime updates for post/like/comment activity
 
-### Demo accounts
+## 2. Current Status
+The project is in a runnable demo state for local development and presentation.
+
+Main local entry points:
+- API: `http://localhost:4000`
+- Web: `http://localhost:5173`
+
+This app currently targets local/demo use rather than production deployment.
+
+## 3. Runtime Requirements
+This project is intended to run on common desktop operating systems including macOS, Linux, and Windows, provided that the required tooling is installed. Cross-platform compatibility is expected, but it should not be treated as guaranteed on every environment without verification.
+
+Required software:
+- Node.js 18 or later
+- npm
+- A modern web browser
+
+Optional software:
+- Docker and Docker Compose, if running the containerized setup instead of local Node.js processes
+
+Possible build tooling requirement:
+- Python 3, `make`, and a C/C++ compiler may be required on some systems when installing the `sqlite3` dependency from source
+
+Environment requirements:
+- `server/.env` must be configured
+- `client/.env` must be configured
+- Required server and client environment variables must be set correctly
+
+System requirements:
+- Port `4000` should be available for the backend server
+- Port `5173` should be available for the frontend development server
+- The machine must allow local file creation and write access because the application uses SQLite for local database storage
+
+Functional capability requirements:
+- The backend server must be able to start and run migrations
+- The frontend must be able to connect to the backend API
+- The frontend must be able to connect to the Socket.IO realtime service
+- The application must be able to read from and write to the local SQLite database
+
+## 4. How To Run
+### Local development
+1. Install dependencies:
+   - `npm install`
+2. Create environment files:
+   - copy `server/.env.example` to `server/.env`
+   - copy `client/.env.example` to `client/.env`
+3. Seed demo data:
+   - `npm -w server run seed:test`
+4. Start both frontend and backend:
+   - `npm run dev`
+
+### Docker
+1. Optional seed:
+   - `docker compose run --rm server npm run seed:test`
+2. Start containers:
+   - `docker compose up --build`
+
+## 5. Demo Accounts
 - Admin: `admin` / `admin123`
-- Users: `seed_user01` … `seed_user10` / `password123`
+- Demo users: `seed_user01` to `seed_user10`
+- Password for demo users: `password123`
 
-### Seeding behavior
-- `seed:test` is intended for demos and is offline-friendly (no external image URLs).
-- Default behavior is to wipe/reset and re-seed so each run starts from a known state.
-- Escape hatch: `npm -w server run seed:test -- --no-force`
+## 6. Important Repo Structure
+- `client/`: React frontend
+- `client/src/pages/`: page-level screens
+- `client/src/components/`: reusable UI components
+- `client/src/lib/`: frontend config, API helpers, realtime, types
+- `server/`: Express backend
+- `server/src/routes/`: API route handlers
+- `server/src/db/`: SQLite connection and migration logic
+- `server/src/realtime.ts`: Socket.IO setup
+- `server/src/services/notifications.ts`: notification-related backend logic
+- `server/migrations/`: SQL migrations
+- `server/scripts/seedTestData.ts`: deterministic demo data seeding
+- `scripts/dev.cjs`: starts server and client together in development
 
-## Environment
-- Server env: copy `server/.env.example` → `server/.env` (optional in dev; required in prod)
-  - SQLite: `SQLITE_PATH=./data/app.db`
-  - CORS: `CLIENT_ORIGIN=http://localhost:5173`
-  - Optional admin seed (script): `ADMIN_USERNAME`, `ADMIN_PASSWORD` then run `npm -w server run seed:admin`
-- Client env (optional): `VITE_API_BASE`, `VITE_SOCKET_URL` (defaults to `http://localhost:4000`)
+## 7. ER Model
+Main entities:
+- `users`
+- `sessions`
+- `posts`
+- `comments`
+- `likes`
+- `friendships`
+- `notifications`
 
-## Architecture overview
+Main relationships:
+- One user can have many sessions
+- One user can create many posts
+- One user can write many comments
+- One post can have many comments
+- Users and posts have a many-to-many relationship through likes
+- Users have a many-to-many self-relationship through friendships
+- One user can receive many notifications
+- One user can also act as the triggering user for many notifications
 
-### Auth/session model
-- Access token: JWT (short TTL), stored in localStorage.
-- Refresh token: JWT (long TTL), stored in localStorage.
-- Refresh sessions persisted in SQLite (`sessions` table) with hashed refresh token.
-- Multi-device supported (each login creates a session row).
-- Code: `server/src/routes/auth.ts`, `server/src/auth/tokens.ts`, `server/src/middleware/auth.ts`.
+```mermaid
+erDiagram
+    USERS ||--o{ SESSIONS : has
+    USERS ||--o{ POSTS : creates
+    USERS ||--o{ COMMENTS : writes
+    POSTS ||--o{ COMMENTS : receives
+    USERS ||--o{ LIKES : gives
+    POSTS ||--o{ LIKES : receives
+    USERS ||--o{ NOTIFICATIONS : receives
+    USERS ||--o{ NOTIFICATIONS : triggers
+    USERS ||--o{ FRIENDSHIPS : user1
+    USERS ||--o{ FRIENDSHIPS : user2
 
-### Database & migrations
-- SQLite migrations are applied automatically on server startup.
-- Migration runner: `server/src/db/migrate.ts`
-- Migration files live in `server/migrations/` and are applied in order:
-  - `001_init.sql`: users/sessions/posts/likes/comments
-  - `004_user_status.sql`: adds `users.status_text`
-  - `005_user_ban.sql`: adds user ban flag (admin moderation support)
-  - `006_friendships.sql`: friendships table (requests + accepted + rejected)
-  - `007_post_visibility_notifications.sql`: posts visibility + notifications table
+    USERS {
+        int id PK
+        string username UK
+        string password_hash
+        string role
+        string display_name
+        string bio
+        string avatar_url
+        string status_text
+        int is_banned
+        datetime created_at
+    }
 
-### Realtime (Socket.IO)
-- Server: `server/src/realtime.ts`
-- Socket auth: client passes access token via `socket.handshake.auth.token`
-- Rooms:
-  - Per-user notifications: `user:<id>`
-- Events:
-  - Social feed: `event` (post/like/comment changes)
-  - Notifications: `notify:event` (per-user)
+    SESSIONS {
+        string id PK
+        int user_id FK
+        string refresh_token_hash
+        datetime created_at
+        datetime last_used_at
+        datetime expires_at
+        string user_agent
+        string ip
+    }
 
-### Client API + realtime
-- REST wrapper with automatic refresh on `401`: `client/src/lib/api.ts`
-- Token storage: `client/src/lib/storage.ts`
-- Socket singleton + buffered notify subscription: `client/src/lib/realtime.ts`
-- Unread badge resync mechanism: `client/src/lib/notificationsSync.ts`
-- Dark mode (Tailwind class strategy):
-  - Theme provider: `client/src/lib/theme.tsx`
-  - Tailwind config: `client/tailwind.config.js`
+    POSTS {
+        int id PK
+        int user_id FK
+        string text
+        string image_url
+        int like_count
+        string visibility
+        datetime created_at
+        datetime updated_at
+    }
 
-## Key REST endpoints (high-level)
+    COMMENTS {
+        int id PK
+        int post_id FK
+        int user_id FK
+        string text
+        datetime created_at
+    }
 
-### Auth
-- `POST /api/auth/signup`
-- `POST /api/auth/login`
-- `POST /api/auth/refresh`
-- `POST /api/auth/logout`
+    LIKES {
+        int user_id PK
+        int post_id PK
+        datetime created_at
+    }
 
-### Profiles
-- `GET /api/me`
-- `PATCH /api/me`
-- `DELETE /api/me`
-- `GET /api/users/:username`
+    FRIENDSHIPS {
+        int user_id1 PK
+        int user_id2 PK
+        string status
+        int action_user_id FK
+        datetime created_at
+        datetime updated_at
+    }
 
-### Posts / social
-- `GET /api/posts/feed?sort=new|popular&scope=global|friends&limit=..&cursor=..`
-- `GET /api/posts/user/:username?limit=..&cursor=..`
-- `GET /api/posts/:id`
-- `POST /api/posts` (supports `visibility: public|friends`)
-- `PUT /api/posts/:id` (supports `visibility` changes)
-- `DELETE /api/posts/:id`
-- `POST /api/posts/:id/like`
-- `GET /api/comments/post/:postId`
-- `POST /api/comments/post/:postId`
+    NOTIFICATIONS {
+        int id PK
+        int user_id FK
+        string type
+        int actor_user_id FK
+        string entity_type
+        int entity_id
+        int is_read
+        datetime created_at
+    }
+```
 
-### Friends
-- `GET /api/friends?limit=..&cursor=..` (accepted friends)
-- `GET /api/friends/requests?limit=..&cursor=..` (incoming requests)
-- `GET /api/friends/requests/sent?limit=..&cursor=..` (sent requests)
-- `POST /api/friends/request/:userId` (send request)
-- `POST /api/friends/accept/:userId`
-- `POST /api/friends/reject/:userId`
-- `DELETE /api/friends/request/:userId` (cancel)
-- `DELETE /api/friends/:userId` (unfriend)
+Design notes:
+- `likes` is the associative table between users and posts
+- `friendships` is a self-referencing associative table between two users
+- `friendships` stores one row per user pair using the `user_id1 < user_id2` rule
+- `notifications.entity_type` and `entity_id` are polymorphic references and are not enforced as direct foreign keys
+- The `migrations` table exists for schema management and is not part of the business ER model
 
-### Notifications
-- `GET /api/notifications?limit=..&cursor=..`
-- `GET /api/notifications/unread-count`
-- `POST /api/notifications/read` (by ids)
-- `POST /api/notifications/read-all`
-- `POST /api/notifications/read-by-entity` (used for auto-mark-read when opening a post)
+## 8. Environment Variables
+### Server
+Important variables:
+- `PORT`
+- `CLIENT_ORIGIN`
+- `JWT_ACCESS_SECRET`
+- `JWT_REFRESH_SECRET`
+- `ACCESS_TOKEN_TTL_SECONDS`
+- `REFRESH_TOKEN_TTL_SECONDS`
+- `SQLITE_PATH`
+- `ADMIN_USERNAME`
+- `ADMIN_PASSWORD`
 
-### Search
-- `GET /api/search?q=...&limit=..` (users + posts)
+### Client
+Important variables:
+- `VITE_API_BASE`
+- `VITE_SOCKET_URL`
 
-### Admin (admin-only)
-- `GET /api/admin/analytics?days=7|30|90|365`
-- `POST /api/admin/sql` (read-only console)
-- `GET /api/admin/users/:id`, `PATCH /api/admin/users/:id`, `DELETE /api/admin/users/:id` (moderation)
+## 9. Database and Migration Notes
+- SQLite is used for persistence.
+- Migrations run automatically when the backend starts.
+- Migration files live in `server/migrations/`.
+- Migrations are manually listed in `server/src/db/migrate.ts`.
+- If a new migration file is added, it must also be added to the migration file list in `server/src/db/migrate.ts` or it will not run.
 
-## Important UI files
-- Routing + session bootstrap + unread badge: `client/src/App.tsx`
-- Navigation (theme toggle + unread badge): `client/src/components/NavBar.tsx`
-- Feed: `client/src/pages/FeedPage.tsx`
-- Composer: `client/src/components/PostComposer.tsx`
-- Feed cards: `client/src/components/PostCard.tsx`
-- Post detail: `client/src/pages/PostPage.tsx`
-- Profile (includes friend actions + friends pagination): `client/src/pages/ProfilePage.tsx`
-- Notifications inbox: `client/src/pages/NotificationsPage.tsx`
-- Search page: `client/src/pages/SearchPage.tsx`
-- Admin dashboard: `client/src/pages/AdminPage.tsx`
+## 10. Seeding Notes
+- `npm -w server run seed:test` resets the local database by default.
+- This is useful for demos, but it will wipe existing local data.
+- To avoid resetting existing data, use:
+  - `npm -w server run seed:test -- --no-force`
+- Seeded content is deterministic, so it is useful for repeatable demos and debugging.
 
-## Current design philosophy
-- The UI direction is intentionally more vibrant and youthful than the original neutral dashboard style.
-- Visual language is based on glassmorphism, but not the flat "frosted card everywhere" version. Panels should feel layered, floating, and slightly luminous.
-- The core palette is warm pink/coral plus aqua, with small amber accents to keep gradients from feeling generic.
-- Typography is part of the identity: `Space Grotesk` for display, `Sora` for body, and `IBM Plex Mono` for system/meta labels.
-- Motion should support atmosphere and hierarchy, not become noise. Prefer soft lift, blur, shimmer, and staggered reveal over busy animation.
-- Surfaces should feel translucent and elevated: rounded corners, soft borders, inset highlights, deep but diffused shadows, and visible depth between background and content.
-- Interactive elements should read clearly at a glance. Important controls should have stronger glow/contrast states rather than relying only on subtle border changes.
-- Empty states and hero sections should feel art-directed, with ambient blobs, glow, and supporting copy rather than plain centered boxes.
-- Preserve responsiveness. The visual system should still work on mobile, which means avoiding oversized decorative layers that break stacking or readability.
-- When editing UI, prefer extending the shared tokens and utility classes in `client/src/index.css` instead of scattering one-off styling across pages.
+## 11. Known Gaps and Risks
+- There is no automated test suite set up currently.
+- Root `npm run lint` only lints the client, not the server.
+- The project is optimized for local/demo use rather than production hardening.
+- SQLite is simple and convenient here, but it is not intended for production-scale concurrent traffic.
+- Default auth secrets in the example env files are development-only values and should not be used in any real deployment.
 
-## Recent UI direction changes
-- Global visual system in `client/src/index.css` was refreshed to use brighter gradients, stronger glass panels, floating ambient backgrounds, and updated typography.
-- Branding in `client/index.html` now uses the `Social Pulse` title and a matching inline gradient favicon.
-- `client/src/components/NavBar.tsx` was redesigned into a floating glass header with stronger active states and a more branded identity.
-- `client/src/pages/FeedPage.tsx` now has a more expressive hero section with layered glow, stronger copy, and a clearer sense of motion and energy.
-- `client/src/components/PostComposer.tsx` and `client/src/components/PostCard.tsx` were updated to feel more tactile and elevated, including stronger glass surfaces and highlighted interaction states.
+## 12. Recommended First Tasks For the Next Maintainer
+- Add backend linting and an automated test suite
+- Document API behavior more formally if the project will continue beyond the course/demo phase
+- Review the admin SQL console and confirm its intended access and safety boundaries
+- Decide whether the app remains demo-only or should be hardened for deployment
+- Add a clearer deployment or release process if production use is expected
 
-## Recent bug fixes
-- Feed pagination bug fixed in `server/src/routes/posts.ts`: cursor-based feed requests were generating invalid SQL because the query appended a second `WHERE` instead of an `AND`.
-- Pagination labels were clarified in the feed, profile, and notifications views so the UI now explicitly says there is no more content instead of feeling broken.
+## 13. Suggested Ownership Checklist
+The next maintainer should verify the following after setup:
+- Local startup works
+- Seed script works
+- Login and signup work
+- Feed create/read/update/delete works
+- Likes and comments work
+- Notifications work
+- Admin dashboard works
+- Realtime updates work across two browser windows
 
-## Known nuances / follow-ups
-- Username changes are intentionally not supported (users cannot rename their account after signup).
-- Automated tests are not set up yet (only manual testing).
-- The current vibrant glass style is strongest on the navbar, feed hero, composer, and post cards. Login, signup, search, notifications, profile detail surfaces, and admin can still be brought further into the same visual language.
+## 14. Final Notes
+Before making schema changes:
+- Add a new SQL migration
+- Register it in `server/src/db/migrate.ts`
+- Test against a fresh seeded database
 
-## High-value next tasks
-Pick one depending on your goal:
-
-1) Add automated tests
-- Server: add a minimal API test runner (e.g., Vitest/Jest + Supertest) and cover auth/friends/visibility/notifications.
-- Optional: add Playwright/Cypress for a few end-to-end flows.
-
-2) Notifications: more grouping/coalescing
-- UI grouping beyond message notifications (e.g., likes/comments grouped by post).
-- Optional server-side coalescing/rate limiting.
-
-3) Advanced social UX
-- Better post filtering, follow/muting, or richer profile sections.
-
-## Testing checklist (manual)
-- Auth: signup/login/logout/refresh
-- Posts: create/edit/delete; set visibility; verify friends-only access rules
-- Friends: request/accept/reject/cancel/unfriend; verify friends feed scope
-- Notifications: receive friend request notifications; unread badge updates; auto-mark-read on open
-- Admin: seed admin, load analytics, export JSON/CSV, run read-only SQL
+Before demoing:
+- Reseed the database for a clean state
+- Confirm the demo accounts still work
+- Confirm the frontend is pointing to the correct backend URL

@@ -82,115 +82,136 @@ Functional capability requirements:
 ## Seed only an admin user (optional)
 - `npm -w server run seed:admin`
 
-## ER Model
-Main entities:
-- `users`
-- `sessions`
-- `posts`
-- `comments`
-- `likes`
-- `friendships`
-- `notifications`
+## Database Schema
+Core application tables:
 
-Main relationships:
-- One user can have many sessions
-- One user can create many posts
-- One user can write many comments
-- One post can have many comments
-- Users and posts have a many-to-many relationship through likes
-- Users have a many-to-many self-relationship through friendships
-- One user can receive many notifications
-- One user can also act as the triggering user for many notifications
+### Table Relationships
+- `users` -> `sessions`: one-to-many through `sessions.user_id` with `ON DELETE CASCADE`
+- `users` -> `posts`: one-to-many through `posts.user_id` with `ON DELETE CASCADE`
+- `users` -> `comments`: one-to-many through `comments.user_id` with `ON DELETE CASCADE`
+- `posts` -> `comments`: one-to-many through `comments.post_id` with `ON DELETE CASCADE`
+- `users` <-> `posts` through `likes`: many-to-many using composite primary key (`user_id`, `post_id`) with `ON DELETE CASCADE`
+- `users` <-> `users` through `friendships`: self-referencing many-to-many using (`user_id1`, `user_id2`); `action_user_id` is a nullable reference to the user who last acted on the friendship
+- `users` -> `notifications`: one-to-many through `notifications.user_id` with `ON DELETE CASCADE`
+- `users` -> `notifications` as actor: one-to-many through `notifications.actor_user_id` with `ON DELETE SET NULL`
+- `migrations` is standalone and used only for schema version tracking
 
-```mermaid
-erDiagram
-    USERS ||--o{ SESSIONS : has
-    USERS ||--o{ POSTS : creates
-    USERS ||--o{ COMMENTS : writes
-    POSTS ||--o{ COMMENTS : receives
-    USERS ||--o{ LIKES : gives
-    POSTS ||--o{ LIKES : receives
-    USERS ||--o{ NOTIFICATIONS : receives
-    USERS ||--o{ NOTIFICATIONS : triggers
-    USERS ||--o{ FRIENDSHIPS : user1
-    USERS ||--o{ FRIENDSHIPS : user2
+### `users`
+Stores account and profile data.
 
-    USERS {
-        int id PK
-        string username UK
-        string password_hash
-        string role
-        string display_name
-        string bio
-        string avatar_url
-        string status_text
-        int is_banned
-        datetime created_at
-    }
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | INTEGER | Primary key |
+| `username` | TEXT | Unique, required |
+| `password_hash` | TEXT | Required |
+| `role` | TEXT | Defaults to `user` |
+| `display_name` | TEXT | Nullable |
+| `bio` | TEXT | Nullable |
+| `avatar_url` | TEXT | Nullable |
+| `created_at` | TEXT | Defaults to current timestamp |
+| `status_text` | TEXT | Nullable |
+| `is_banned` | INTEGER | Defaults to `0` |
 
-    SESSIONS {
-        string id PK
-        int user_id FK
-        string refresh_token_hash
-        datetime created_at
-        datetime last_used_at
-        datetime expires_at
-        string user_agent
-        string ip
-    }
+### `sessions`
+Stores refresh-session state for authenticated users.
 
-    POSTS {
-        int id PK
-        int user_id FK
-        string text
-        string image_url
-        int like_count
-        string visibility
-        datetime created_at
-        datetime updated_at
-    }
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | TEXT | Primary key |
+| `user_id` | INTEGER | Foreign key to `users.id` |
+| `refresh_token_hash` | TEXT | Required |
+| `created_at` | TEXT | Defaults to current timestamp |
+| `last_used_at` | TEXT | Defaults to current timestamp |
+| `expires_at` | TEXT | Required |
+| `user_agent` | TEXT | Nullable |
+| `ip` | TEXT | Nullable |
 
-    COMMENTS {
-        int id PK
-        int post_id FK
-        int user_id FK
-        string text
-        datetime created_at
-    }
+### `posts`
+Stores user-created posts.
 
-    LIKES {
-        int user_id PK
-        int post_id PK
-        datetime created_at
-    }
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | INTEGER | Primary key |
+| `user_id` | INTEGER | Foreign key to `users.id` |
+| `text` | TEXT | Required |
+| `image_url` | TEXT | Nullable |
+| `like_count` | INTEGER | Defaults to `0` |
+| `created_at` | TEXT | Defaults to current timestamp |
+| `updated_at` | TEXT | Nullable |
+| `visibility` | TEXT | Defaults to `public`; used for access control |
 
-    FRIENDSHIPS {
-        int user_id1 PK
-        int user_id2 PK
-        string status
-        int action_user_id FK
-        datetime created_at
-        datetime updated_at
-    }
+### `likes`
+Associative table between users and posts.
 
-    NOTIFICATIONS {
-        int id PK
-        int user_id FK
-        string type
-        int actor_user_id FK
-        string entity_type
-        int entity_id
-        int is_read
-        datetime created_at
-    }
-```
+| Column | Type | Notes |
+| --- | --- | --- |
+| `user_id` | INTEGER | Composite primary key, foreign key to `users.id` |
+| `post_id` | INTEGER | Composite primary key, foreign key to `posts.id` |
+| `created_at` | TEXT | Defaults to current timestamp |
 
-Design notes:
-- `likes` is the associative table between users and posts
-- `friendships` is a self-referencing associative table between two users
-- `friendships` stores one row per user pair using the `user_id1 < user_id2` rule
-- `notifications.entity_type` and `entity_id` are polymorphic references and are not enforced as direct foreign keys
-- The `migrations` table exists for schema management and is not part of the business ER model
+### `comments`
+Stores comments on posts.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | INTEGER | Primary key |
+| `post_id` | INTEGER | Foreign key to `posts.id` |
+| `user_id` | INTEGER | Foreign key to `users.id` |
+| `text` | TEXT | Required |
+| `created_at` | TEXT | Defaults to current timestamp |
+
+### `friendships`
+Stores friendship requests and accepted relationships between user pairs.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `user_id1` | INTEGER | Composite primary key, foreign key to `users.id` |
+| `user_id2` | INTEGER | Composite primary key, foreign key to `users.id` |
+| `status` | TEXT | Defaults to `pending`; valid values are `pending`, `accepted`, `rejected` |
+| `action_user_id` | INTEGER | Nullable foreign key to `users.id` |
+| `created_at` | TEXT | Defaults to current timestamp |
+| `updated_at` | TEXT | Nullable |
+
+### `notifications`
+Stores in-app notification records.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | INTEGER | Primary key |
+| `user_id` | INTEGER | Foreign key to `users.id`; notification recipient |
+| `type` | TEXT | Required |
+| `actor_user_id` | INTEGER | Nullable foreign key to `users.id` |
+| `entity_type` | TEXT | Nullable polymorphic reference type |
+| `entity_id` | INTEGER | Nullable polymorphic reference id |
+| `is_read` | INTEGER | Defaults to `0` |
+| `created_at` | TEXT | Defaults to current timestamp |
+
+### `migrations`
+Tracks which schema migrations have already been applied.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | INTEGER | Primary key |
+| `name` | TEXT | Unique, required |
+| `applied_at` | TEXT | Defaults to current timestamp |
+
+Schema notes:
+- Primary keys:
+  - `users.id`
+  - `sessions.id`
+  - `posts.id`
+  - `comments.id`
+  - `notifications.id`
+  - `migrations.id`
+  - composite primary key on `likes(user_id, post_id)`
+  - composite primary key on `friendships(user_id1, user_id2)`
+- Unique constraints:
+  - `users.username`
+  - `migrations.name`
+- Foreign keys are enabled in SQLite and most child rows use `ON DELETE CASCADE`
+- `friendships` enforces one row per user pair using `CHECK (user_id1 < user_id2)`
+- `friendships.status` is restricted to `pending`, `accepted`, or `rejected`
+- `notifications.entity_type` and `entity_id` are polymorphic references and are not strict foreign keys
 
 ## Key endpoints
 - Auth: `POST /api/auth/signup`, `POST /api/auth/login`, `POST /api/auth/refresh`, `POST /api/auth/logout`

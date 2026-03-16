@@ -48,11 +48,8 @@ Functional capability requirements:
 
 ## Quickstart (clone → setup → seed → run)
 1) Install deps: `npm install`
-2) Setup env files:
-   - Server: copy `server/.env.example` → `server/.env`
-   - Client: copy `client/.env.example` → `client/.env`
-3) Seed demo data (wipes & resets the local DB): `npm -w server run seed:test`
-4) Start both apps: `npm run dev`
+2) Seed demo data (wipes & resets the local DB): `npm -w server run seed:test`
+3) Start both apps: `npm run dev`
    - API: http://localhost:4000
    - Web: http://localhost:5173
 

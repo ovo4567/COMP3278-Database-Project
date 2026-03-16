@@ -236,7 +236,7 @@ postsRouter.get('/:id', optionalAuth, async (req, res) => {
     comment_count: number;
     user_id: number;
   }>(
-    `SELECT p.id, p.text, p.image_url, p.visibility, p.like_count, p.created_at, p.updated_at,
+    `SELECT p.id, p.user_id, p.text, p.image_url, p.visibility, p.like_count, p.created_at, p.updated_at,
             u.username, u.display_name, u.avatar_url,
             (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count
      FROM posts p

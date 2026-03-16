@@ -52,7 +52,10 @@ export const apiFetch = async <T>(
   const headers: Record<string, string> = {};
   if (options.body !== undefined) headers['content-type'] = 'application/json';
   if (auth) {
-    const token = tokenStorage.getAccessToken();
+    let token = tokenStorage.getAccessToken();
+    if (!token && tokenStorage.getRefreshToken()) {
+      token = await refreshAccessToken();
+    }
     if (token) headers.authorization = `Bearer ${token}`;
   }
 
@@ -65,7 +68,7 @@ export const apiFetch = async <T>(
   };
 
   let res = await doRequest();
-  if (res.status === 401 && auth && tokenStorage.getRefreshToken()) {
+  if ((res.status === 401 || res.status === 403) && auth && tokenStorage.getRefreshToken()) {
     const newToken = await refreshAccessToken();
     if (newToken) {
       headers.authorization = `Bearer ${newToken}`;
@@ -138,11 +141,11 @@ export const postsApi = {
     const q = new URLSearchParams();
     q.set('limit', String(params.limit ?? 20));
     if (params.cursor) q.set('cursor', params.cursor);
-    return apiFetch(`/api/posts/user/${encodeURIComponent(params.username)}?${q.toString()}`);
+    return apiFetch(`/api/posts/user/${encodeURIComponent(params.username)}?${q.toString()}`, { auth: true });
   },
 
   async get(postId: number): Promise<PostDetail> {
-    return apiFetch(`/api/posts/${postId}`);
+    return apiFetch(`/api/posts/${postId}`, { auth: true });
   },
 
   async edit(postId: number, input: { text?: string; imageUrl?: string | null; visibility?: 'public' | 'friends' }): Promise<{ ok: true }> {
@@ -163,7 +166,7 @@ export const commentsApi = {
     const q = new URLSearchParams();
     q.set('limit', String(params.limit ?? 20));
     if (params.cursor) q.set('cursor', String(params.cursor));
-    return apiFetch(`/api/comments/post/${postId}?${q.toString()}`);
+    return apiFetch(`/api/comments/post/${postId}?${q.toString()}`, { auth: true });
   },
 
   async create(postId: number, input: { text: string }): Promise<{ id: number }> {

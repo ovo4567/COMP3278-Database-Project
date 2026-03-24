@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react';
-import type { User } from '../lib/types';
+import { POST_CATEGORIES, POST_CATEGORY_LABELS, type PostCategory, type User } from '../lib/types';
 
 export function PostComposer(props: {
   currentUser?: User | null;
-  onSubmit: (input: { text: string; imageUrl?: string; visibility?: 'public' | 'friends' }) => Promise<void>;
+  onSubmit: (input: { text: string; imageUrl?: string; visibility?: 'public' | 'friends'; category?: PostCategory }) => Promise<void>;
 }) {
   const [text, setText] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [visibility, setVisibility] = useState<'public' | 'friends'>('public');
+  const [category, setCategory] = useState<PostCategory>('all');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,10 +35,12 @@ export function PostComposer(props: {
         text: trimmedText,
         imageUrl: trimmedImageUrl ? trimmedImageUrl : undefined,
         visibility,
+        category,
       });
       setText('');
       setImageUrl('');
       setVisibility('public');
+      setCategory('all');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to post');
     } finally {
@@ -115,6 +118,21 @@ export function PostComposer(props: {
                   </button>
                 </div>
                 <div className="ui-muted mt-2 text-xs">{helperLabel}</div>
+              </div>
+
+              <div>
+                <div className="text-xs font-medium uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">Category</div>
+                <select
+                  value={category}
+                  onChange={(event) => setCategory(event.target.value as PostCategory)}
+                  className="ui-input mt-2 min-w-56"
+                >
+                  {POST_CATEGORIES.map((option) => (
+                    <option key={option} value={option}>
+                      {POST_CATEGORY_LABELS[option]}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="flex items-center gap-2 self-end">

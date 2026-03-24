@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { postsApi } from '../lib/api';
-import type { FeedPost, RealtimeEvent, User } from '../lib/types';
+import { POST_CATEGORIES, POST_CATEGORY_LABELS, type FeedPost, type PostCategory, type RealtimeEvent, type User } from '../lib/types';
 import { onRealtimeEvent } from '../lib/realtime';
 import { PostComposer } from '../components/PostComposer';
 import { PostCard } from '../components/PostCard';
@@ -9,6 +9,7 @@ import { PostCard } from '../components/PostCard';
 export function FeedPage(props: { currentUser: User | null }) {
   const [sort, setSort] = useState<'new' | 'popular'>('new');
   const [scope, setScope] = useState<'global' | 'friends'>('global');
+  const [category, setCategory] = useState<PostCategory>('all');
   const [items, setItems] = useState<FeedPost[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -24,7 +25,7 @@ export function FeedPage(props: { currentUser: User | null }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await postsApi.feed({ sort, scope, cursor: reset ? null : nextCursor, limit: 20 });
+      const res = await postsApi.feed({ sort, scope, category, cursor: reset ? null : nextCursor, limit: 20 });
       setItems((prev) => (reset ? res.items : [...prev, ...res.items]));
       setNextCursor(res.nextCursor);
     } catch (err) {
@@ -37,7 +38,7 @@ export function FeedPage(props: { currentUser: User | null }) {
   useEffect(() => {
     void load(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sort, scope]);
+  }, [sort, scope, category]);
 
   useEffect(() => {
     const off = onRealtimeEvent((event: RealtimeEvent) => {
@@ -64,9 +65,9 @@ export function FeedPage(props: { currentUser: User | null }) {
     });
     return off;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sort, scope, nextCursor]);
+  }, [sort, scope, category, nextCursor]);
 
-  const submitPost = async (input: { text: string; imageUrl?: string; visibility?: 'public' | 'friends' }) => {
+  const submitPost = async (input: { text: string; imageUrl?: string; visibility?: 'public' | 'friends'; category?: PostCategory }) => {
     await postsApi.create(input);
     await load(true);
   };
@@ -96,6 +97,7 @@ export function FeedPage(props: { currentUser: User | null }) {
             <div className="mt-5 flex flex-wrap items-center gap-2">
               <span className="ui-badge ui-system">{scope === 'global' ? 'Global pulse' : 'Friends circle'}</span>
               <span className="ui-badge ui-system">{sort === 'new' ? 'Fresh drop mode' : 'Heat check mode'}</span>
+              <span className="ui-badge ui-system">{POST_CATEGORY_LABELS[category]} tag</span>
               <span className="ui-badge ui-system">Live updates on</span>
             </div>
             <div className="mt-5 flex flex-wrap items-center gap-3">
@@ -174,6 +176,17 @@ export function FeedPage(props: { currentUser: User | null }) {
                   Popular
                 </button>
               </div>
+            </div>
+
+            <div>
+              <div className="text-xs font-medium uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">Category</div>
+              <select value={category} onChange={(event) => setCategory(event.target.value as PostCategory)} className="ui-input mt-2 min-w-44">
+                {POST_CATEGORIES.map((option) => (
+                  <option key={option} value={option}>
+                    {POST_CATEGORY_LABELS[option]}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 

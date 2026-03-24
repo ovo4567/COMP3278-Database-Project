@@ -13,6 +13,7 @@ import { runMigrations } from '../src/db/migrate.js';
 import { getDb } from '../src/db/sqlite.js';
 import { hashPassword } from '../src/auth/passwords.js';
 import { createNotification } from '../src/services/notifications.js';
+import type { PostCategory } from '../src/social/categories.js';
 
 type SeedUserInput = {
   username: string;
@@ -20,6 +21,7 @@ type SeedUserInput = {
   displayName: string;
   bio: string;
   statusText: string;
+  avatarUrl: string | null;
 };
 
 type SeededUser = {
@@ -32,6 +34,12 @@ type SeededPost = {
   id: number;
   userId: number;
   createdAt: Date;
+};
+
+type SeedPostTemplate = {
+  text: string;
+  visibility: 'public' | 'friends';
+  category: PostCategory;
 };
 
 const parseArgs = (argv: string[]) => {
@@ -58,17 +66,6 @@ const pickOne = <T>(arr: T[]): T => {
   return arr[randInt(0, arr.length - 1)]!;
 };
 
-const pickSomeUnique = <T>(arr: T[], count: number): T[] => {
-  const copy = [...arr];
-  const out: T[] = [];
-  while (copy.length > 0 && out.length < count) {
-    const idx = randInt(0, copy.length - 1);
-    out.push(copy[idx]!);
-    copy.splice(idx, 1);
-  }
-  return out;
-};
-
 const toSqliteDateTime = (d: Date): string => {
   // SQLite's datetime('now') yields "YYYY-MM-DD HH:MM:SS".
   // Using this format keeps ordering and date()/datetime() queries predictable.
@@ -86,6 +83,23 @@ const dateBetween = (start: Date, end: Date): Date => {
   const b = end.getTime();
   const t = randFloat(Math.min(a, b), Math.max(a, b));
   return new Date(t);
+};
+
+const hoursAgo = (hours: number): Date => new Date(Date.now() - hours * 60 * 60 * 1000);
+
+const imageKeywordsForCategory: Record<PostCategory, string> = {
+  all: 'lifestyle,people',
+  food: 'food,restaurant',
+  studies: 'study,library',
+  jobs: 'office,work',
+  travel: 'travel,landscape',
+  others: 'street,city',
+};
+
+const imageUrlForCategory = (category: PostCategory, sequence: number): string => {
+  const keywords = imageKeywordsForCategory[category];
+  const lock = 1000 + sequence;
+  return `https://loremflickr.com/1200/800/${keywords}?lock=${lock}`;
 };
 
 const normalizePair = (a: number, b: number) => (a < b ? { user1: a, user2: b } : { user1: b, user2: a });
@@ -179,60 +193,70 @@ const seedRegularUsers = async (): Promise<SeededUser[]> => {
       displayName: 'Ava Chen',
       bio: 'Coffee enthusiast. Weekend hiker. Taking too many photos.',
       statusText: 'Trying a new playlist.',
+      avatarUrl: 'https://i.pravatar.cc/300?img=11',
     },
     {
       password: 'password123',
       displayName: 'Noah Patel',
       bio: 'I build small apps and overthink UX.',
       statusText: 'Shipping small wins.',
+      avatarUrl: null,
     },
     {
       password: 'password123',
       displayName: 'Mia Rodriguez',
       bio: 'Book notes, messy sketches, and good ramen spots.',
       statusText: 'Reading something interesting.',
+      avatarUrl: 'https://i.pravatar.cc/300?img=32',
     },
     {
       password: 'password123',
       displayName: 'Liam Wong',
       bio: 'Gym, games, and the occasional spicy take.',
       statusText: 'Leg day survived.',
+      avatarUrl: null,
     },
     {
       password: 'password123',
       displayName: 'Sophia Kim',
       bio: 'Trying to cook. Mostly failing. Still optimistic.',
       statusText: 'Testing recipes.',
+      avatarUrl: 'https://i.pravatar.cc/300?img=5',
     },
     {
       password: 'password123',
       displayName: 'Ethan Nguyen',
       bio: 'Minimalist. Notes app power user.',
       statusText: 'Clean desk, clear mind.',
+      avatarUrl: 'https://i.pravatar.cc/300?img=15',
     },
     {
       password: 'password123',
       displayName: 'Isabella Rossi',
       bio: 'City walks and tiny moments.',
       statusText: 'Golden hour soon.',
+      avatarUrl: null,
     },
     {
       password: 'password123',
       displayName: 'Lucas Silva',
       bio: 'Learning, iterating, repeating.',
       statusText: 'Debugging life.',
+      avatarUrl: 'https://i.pravatar.cc/300?img=22',
     },
     {
       password: 'password123',
       displayName: 'Amelia Johnson',
       bio: 'Plants, playlists, and project ideas.',
       statusText: 'New leaf day.',
+      avatarUrl: null,
     },
     {
       password: 'password123',
       displayName: 'Oliver Brown',
       bio: 'Sports, snacks, and bad jokes.',
       statusText: 'On a snack run.',
+      avatarUrl: 'https://i.pravatar.cc/300?img=53',
     },
   ];
 
@@ -242,6 +266,14 @@ const seedRegularUsers = async (): Promise<SeededUser[]> => {
     const username = `seed_user${pad2(i + 1)}`;
     const existing = await db.get<{ id: number }>('SELECT id FROM users WHERE username = ?', username);
     if (existing) {
+      await db.run(
+        'UPDATE users SET display_name = ?, bio = ?, status_text = ?, avatar_url = ? WHERE id = ?',
+        base[i]!.displayName,
+        base[i]!.bio,
+        base[i]!.statusText,
+        base[i]!.avatarUrl,
+        existing.id,
+      );
       out.push({ id: existing.id, username, role: 'user' });
       continue;
     }
@@ -257,13 +289,11 @@ const seedRegularUsers = async (): Promise<SeededUser[]> => {
       base[i]!.displayName,
       base[i]!.bio,
       base[i]!.statusText,
-      null,
+      base[i]!.avatarUrl,
       createdAt,
     );
 
     const id = result.lastID as number;
-    await db.run('UPDATE users SET avatar_url = NULL WHERE id = ?', id);
-
     out.push({ id, username, role: 'user' });
   }
 
@@ -273,44 +303,63 @@ const seedRegularUsers = async (): Promise<SeededUser[]> => {
 const seedPosts = async (users: SeededUser[]): Promise<SeededPost[]> => {
   const db = await getDb();
 
-  const postTemplates = [
-    'Small wins today: fixed a bug that was haunting me for days.',
-    'Went for a walk and cleared my head. Highly recommend.',
-    'Trying out a new feature idea. Might ship it, might delete it.',
-    'Hot take: simple UI beats fancy UI most days.',
-    'If you’re reading this, drink some water.',
-    'Weekend plan: rest + a tiny bit of side-project time.',
-    'I finally cleaned up my tabs. It felt weird.',
-    'Found a great cafe spot. The vibes are immaculate.',
-    'Progress > perfection.',
-    'Note to self: write tests earlier next time.',
+  const postTemplates: SeedPostTemplate[] = [
+    {
+      text: 'Lunch break reset. Found a cozy place with great noodles and quiet lighting.',
+      visibility: 'public',
+      category: 'food',
+    },
+    {
+      text: 'Library sprint done. Sharing my study setup for this week.',
+      visibility: 'friends',
+      category: 'studies',
+    },
+    {
+      text: 'Career update: wrapped a mock interview session and wrote down key takeaways.',
+      visibility: 'public',
+      category: 'jobs',
+    },
+    {
+      text: 'Weekend travel moodboard. This view made the entire day.',
+      visibility: 'public',
+      category: 'travel',
+    },
+    {
+      text: 'General life dump: balancing projects, rest, and keeping momentum.',
+      visibility: 'friends',
+      category: 'all',
+    },
+    {
+      text: 'Random share from today. Not a big moment, just a good one.',
+      visibility: 'public',
+      category: 'others',
+    },
   ];
 
   const posts: SeededPost[] = [];
 
-  for (const u of users) {
-    const count = randInt(3, 5);
-    for (let i = 0; i < count; i++) {
-      const createdAt = dateWithinLastDays(30);
-
-      const r = Math.random();
-      const visibility = r < 0.75 ? 'public' : 'friends';
-
-      // Demo seed should not rely on external images.
-      const wantsImage = false;
-
+  for (let userIndex = 0; userIndex < users.length; userIndex++) {
+    const u = users[userIndex]!;
+    const postsPerUser = 4;
+    for (let i = 0; i < postsPerUser; i++) {
+      const sequence = userIndex * postsPerUser + i;
+      const template = postTemplates[(userIndex * postsPerUser + i) % postTemplates.length]!;
+      const hoursOffset = userIndex * postsPerUser * 3 + i * 3 + 2;
+      const createdAt = hoursAgo(hoursOffset);
+      const category = template.category;
+      const hasImage = sequence % 3 !== 1;
+      const imageUrl = hasImage ? imageUrlForCategory(category, sequence) : null;
       const result = await db.run(
-        'INSERT INTO posts(user_id, text, image_url, visibility, like_count, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, NULL)',
+        'INSERT INTO posts(user_id, text, image_url, visibility, category, like_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, NULL)',
         u.id,
-        pickOne(postTemplates),
-        null,
-        visibility,
+        template.text,
+        imageUrl,
+        template.visibility,
+        category,
         toSqliteDateTime(createdAt),
       );
 
       const postId = result.lastID as number;
-      if (wantsImage) void postId;
-
       posts.push({ id: postId, userId: u.id, createdAt });
     }
   }
@@ -321,32 +370,39 @@ const seedPosts = async (users: SeededUser[]): Promise<SeededPost[]> => {
 const seedComments = async (users: SeededUser[], posts: SeededPost[]) => {
   const db = await getDb();
 
-  const commentTemplates = [
-    'Love this.',
-    'Big mood.',
-    'This is oddly motivating.',
-    'Agree 100%.',
-    'Nice — thanks for sharing!',
-    'That’s a good point.',
-    'I needed to read this today.',
-    'Wait, how did you do that?',
-    '😂',
-    'Solid update.',
+  const chatTemplates = [
+    'This looks great. Where did you take this?',
+    'Super clean setup. I should copy this workflow.',
+    'Noted. I am trying this tomorrow.',
+    'Big yes to this idea.',
+    'Thanks for sharing. Needed this today.',
+    'How long did this take you to prepare?',
+    'This spot is on my list now.',
+    'Nice update, keep posting these.',
+    'I had the same experience last week.',
+    'Can you share more details when free?',
+    'This is actually very helpful.',
+    'Saved this for later reference.',
   ];
 
-  for (const p of posts) {
-    const count = randInt(2, 8);
+  for (let postIndex = 0; postIndex < posts.length; postIndex++) {
+    const p = posts[postIndex]!;
+    const ownerIndex = users.findIndex((u) => u.id === p.userId);
+    const participants = users.filter((u) => u.id !== p.userId);
+    const count = 4;
 
     for (let i = 0; i < count; i++) {
-      const allowAuthor = Math.random() < 0.1;
-      const commenter = allowAuthor ? users.find((u) => u.id === p.userId)! : pickOne(users.filter((u) => u.id !== p.userId));
-      const createdAt = dateBetween(p.createdAt, new Date());
+      const commenter =
+        i === 2 && ownerIndex >= 0
+          ? users[ownerIndex]!
+          : participants[(postIndex + i) % participants.length]!;
+      const createdAt = new Date(p.createdAt.getTime() + (i + 1) * 35 * 60 * 1000);
 
       await db.run(
         'INSERT INTO comments(post_id, user_id, text, created_at) VALUES (?, ?, ?, ?)',
         p.id,
         commenter.id,
-        pickOne(commentTemplates),
+        chatTemplates[(postIndex * count + i) % chatTemplates.length]!,
         toSqliteDateTime(createdAt),
       );
     }

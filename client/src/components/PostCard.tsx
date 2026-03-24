@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { FeedPost, User } from '../lib/types';
+import { POST_CATEGORIES, POST_CATEGORY_LABELS, type FeedPost, type PostCategory, type User } from '../lib/types';
 import { postsApi } from '../lib/api';
 import { CommentsPanel } from './CommentsPanel';
 import { Timestamp } from './Timestamp';
@@ -17,6 +17,7 @@ export function PostCard(props: {
   const [text, setText] = useState(props.post.text);
   const [imageUrl, setImageUrl] = useState(props.post.imageUrl ?? '');
   const [visibility, setVisibility] = useState<'public' | 'friends'>(props.post.visibility ?? 'public');
+  const [category, setCategory] = useState<PostCategory>(props.post.category ?? 'all');
   const [error, setError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<'like' | 'save' | 'delete' | null>(null);
 
@@ -53,6 +54,7 @@ export function PostCard(props: {
         text: nextText,
         imageUrl: nextImageUrl ? nextImageUrl : null,
         visibility,
+        category,
       });
       setEditing(false);
       props.onChange({
@@ -60,6 +62,7 @@ export function PostCard(props: {
         text: nextText,
         imageUrl: nextImageUrl ? nextImageUrl : null,
         visibility,
+        category,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update');
@@ -99,6 +102,7 @@ export function PostCard(props: {
               <Link to={`/u/${encodeURIComponent(props.post.user.username)}`} className="truncate text-sm font-semibold text-gray-900 hover:underline dark:text-gray-100">
                 {displayName}
               </Link>
+              <span className="ui-badge ui-system">{POST_CATEGORY_LABELS[props.post.category ?? 'all']}</span>
               {props.post.visibility === 'friends' ? <span className="ui-badge ui-system">Friends only</span> : null}
               {props.post.updatedAt ? <span className="ui-badge">Edited</span> : null}
             </div>
@@ -145,6 +149,20 @@ export function PostCard(props: {
                 Friends
               </button>
             </div>
+          </div>
+          <div>
+            <div className="text-xs font-medium uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">Category</div>
+            <select
+              value={category}
+              onChange={(event) => setCategory(event.target.value as PostCategory)}
+              className="ui-input mt-2"
+            >
+              {POST_CATEGORIES.map((option) => (
+                <option key={option} value={option}>
+                  {POST_CATEGORY_LABELS[option]}
+                </option>
+              ))}
+            </select>
           </div>
           {error ? <div className="ui-error">{error}</div> : null}
           <div className="flex justify-end">

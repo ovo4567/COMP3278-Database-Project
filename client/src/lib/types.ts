@@ -1,4 +1,14 @@
 export type Role = 'user' | 'admin';
+export const POST_CATEGORIES = ['all', 'food', 'studies', 'jobs', 'travel', 'others'] as const;
+export type PostCategory = (typeof POST_CATEGORIES)[number];
+export const POST_CATEGORY_LABELS: Record<PostCategory, string> = {
+  all: 'All',
+  food: 'Food',
+  studies: 'Studies',
+  jobs: 'Jobs',
+  travel: 'Travel',
+  others: 'Others',
+};
 
 export type User = {
   id: number;
@@ -21,6 +31,7 @@ export type FeedPost = {
   id: number;
   text: string;
   imageUrl: string | null;
+  category: PostCategory;
   visibility?: 'public' | 'friends';
   likeCount: number;
   likedByMe?: boolean;

@@ -4,6 +4,7 @@ import { getDb } from '../db/sqlite.js';
 import { optionalAuth, requireAuth, type AuthedRequest, type MaybeAuthedRequest } from '../middleware/auth.js';
 import { emitEvent } from '../realtime.js';
 import { areFriends, canViewPostByOwner, type PostVisibility } from '../social/visibility.js';
+import { postCategories, type PostCategory } from '../social/categories.js';
 
 export const postsRouter = Router();
 
@@ -11,12 +12,22 @@ const createPostSchema = z.object({
   text: z.string().max(5000).optional(),
   imageUrl: z.string().url().max(500).optional().or(z.literal('')),
   visibility: z.enum(['public', 'friends']).optional(),
+  category: z.enum(postCategories).optional(),
 });
 
 const editPostSchema = z.object({
   text: z.string().max(5000).optional(),
   imageUrl: z.string().url().max(500).optional().or(z.literal('')),
   visibility: z.enum(['public', 'friends']).optional(),
+  category: z.enum(postCategories).optional(),
+});
+
+const feedQuerySchema = z.object({
+  sort: z.enum(['new', 'popular']).optional(),
+  scope: z.enum(['global', 'friends']).optional(),
+  limit: z.coerce.number().int().min(1).max(50).optional(),
+  cursor: z.string().optional(),
+  category: z.enum(postCategories).optional(),
 });
 
 postsRouter.post('/', requireAuth, async (req, res) => {
@@ -28,14 +39,16 @@ postsRouter.post('/', requireAuth, async (req, res) => {
   const imageUrl = (parsed.data.imageUrl ?? '').trim();
   if (!text && !imageUrl) return res.status(400).json({ error: 'Post requires text or image' });
   const visibility: PostVisibility = (parsed.data.visibility ?? 'public') as PostVisibility;
+  const category: PostCategory = parsed.data.category ?? 'all';
 
   const db = await getDb();
   const result = await db.run(
-    'INSERT INTO posts(user_id, text, image_url, visibility) VALUES (?, ?, ?, ?)',
+    'INSERT INTO posts(user_id, text, image_url, visibility, category) VALUES (?, ?, ?, ?, ?)',
     userId,
     text,
     imageUrl ? imageUrl : null,
     visibility,
+    category,
   );
 
   const postId = result.lastID as number;
@@ -44,10 +57,14 @@ postsRouter.post('/', requireAuth, async (req, res) => {
 });
 
 postsRouter.get('/feed', optionalAuth, async (req, res) => {
-  const sort = String(req.query.sort ?? 'new');
-  const scope = String(req.query.scope ?? 'global');
-  const limit = Math.min(Number(req.query.limit ?? 20), 50);
-  const cursor = req.query.cursor ? String(req.query.cursor) : null;
+  const parsed = feedQuerySchema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid query' });
+
+  const sort = parsed.data.sort ?? 'new';
+  const scope = parsed.data.scope ?? 'global';
+  const limit = parsed.data.limit ?? 20;
+  const cursor = parsed.data.cursor ?? null;
+  const category = parsed.data.category ?? 'all';
 
   const maybeUserId = (req as MaybeAuthedRequest).user?.sub ? Number((req as MaybeAuthedRequest).user?.sub) : null;
   if (scope === 'friends' && !maybeUserId) return res.status(401).json({ error: 'Login required' });
@@ -55,15 +72,17 @@ postsRouter.get('/feed', optionalAuth, async (req, res) => {
   const db = await getDb();
 
   const orderBy = sort === 'popular' ? 'p.like_count DESC, p.created_at DESC' : 'p.created_at DESC';
+  const categoryClause = category === 'all' ? '' : 'AND p.category = ?';
+  const filterParams: Array<string | number> = [...(cursor ? [cursor] : []), ...(category === 'all' ? [] : [category]), limit + 1];
 
   // Cursor is ISO datetime of last post in previous batch.
   const cursorClause = cursor ? 'AND p.created_at < ?' : '';
-  const params = cursor ? [cursor, limit + 1] : [limit + 1];
 
   const rows = await db.all<{
     id: number;
     text: string;
     image_url: string | null;
+    category: PostCategory;
     visibility: PostVisibility;
     like_count: number;
     created_at: string;
@@ -75,7 +94,7 @@ postsRouter.get('/feed', optionalAuth, async (req, res) => {
   }[]>(
     maybeUserId
       ? scope === 'friends'
-        ? `SELECT p.id, p.text, p.image_url, p.visibility, p.like_count, p.created_at, p.updated_at,
+        ? `SELECT p.id, p.text, p.image_url, p.category, p.visibility, p.like_count, p.created_at, p.updated_at,
                   u.username, u.display_name, u.avatar_url,
                   CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS liked_by_me
            FROM posts p
@@ -94,9 +113,10 @@ postsRouter.get('/feed', optionalAuth, async (req, res) => {
              )
            )
              ${cursorClause}
+             ${categoryClause}
            ORDER BY ${orderBy}
            LIMIT ?`
-        : `SELECT p.id, p.text, p.image_url, p.visibility, p.like_count, p.created_at, p.updated_at,
+        : `SELECT p.id, p.text, p.image_url, p.category, p.visibility, p.like_count, p.created_at, p.updated_at,
                 u.username, u.display_name, u.avatar_url,
                 CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS liked_by_me
          FROM posts p
@@ -116,22 +136,24 @@ postsRouter.get('/feed', optionalAuth, async (req, res) => {
            )
          )
          ${cursorClause}
+         ${categoryClause}
          ORDER BY ${orderBy}
          LIMIT ?`
-      : `SELECT p.id, p.text, p.image_url, p.visibility, p.like_count, p.created_at, p.updated_at,
+      : `SELECT p.id, p.text, p.image_url, p.category, p.visibility, p.like_count, p.created_at, p.updated_at,
                 u.username, u.display_name, u.avatar_url,
                 0 AS liked_by_me
          FROM posts p
          JOIN users u ON u.id = p.user_id
          WHERE p.visibility = 'public'
          ${cursorClause}
+         ${categoryClause}
          ORDER BY ${orderBy}
          LIMIT ?`,
     ...(maybeUserId
       ? scope === 'friends'
-        ? [maybeUserId, maybeUserId, maybeUserId, maybeUserId, ...params]
-        : [maybeUserId, maybeUserId, maybeUserId, maybeUserId, ...params]
-      : params),
+        ? [maybeUserId, maybeUserId, maybeUserId, maybeUserId, ...filterParams]
+        : [maybeUserId, maybeUserId, maybeUserId, maybeUserId, ...filterParams]
+      : filterParams),
   );
 
   const hasMore = rows.length > limit;
@@ -143,6 +165,7 @@ postsRouter.get('/feed', optionalAuth, async (req, res) => {
       id: r.id,
       text: r.text,
       imageUrl: r.image_url,
+      category: r.category ?? 'all',
       likeCount: r.like_count,
       likedByMe: Boolean(r.liked_by_me),
       visibility: (r.visibility ?? 'public') as PostVisibility,
@@ -182,12 +205,13 @@ postsRouter.get('/user/:username', optionalAuth, async (req, res) => {
     id: number;
     text: string;
     image_url: string | null;
+    category: PostCategory;
     like_count: number;
     created_at: string;
     updated_at: string | null;
     visibility: PostVisibility;
   }[]>(
-    `SELECT p.id, p.text, p.image_url, p.like_count, p.created_at, p.updated_at, p.visibility
+    `SELECT p.id, p.text, p.image_url, p.category, p.like_count, p.created_at, p.updated_at, p.visibility
      FROM posts p
      WHERE p.user_id = ?
      ${visibilityWhere}
@@ -206,6 +230,7 @@ postsRouter.get('/user/:username', optionalAuth, async (req, res) => {
       id: r.id,
       text: r.text,
       imageUrl: r.image_url,
+      category: r.category ?? 'all',
       likeCount: r.like_count,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
@@ -226,6 +251,7 @@ postsRouter.get('/:id', optionalAuth, async (req, res) => {
     id: number;
     text: string;
     image_url: string | null;
+    category: PostCategory;
     visibility: PostVisibility;
     like_count: number;
     created_at: string;
@@ -236,7 +262,7 @@ postsRouter.get('/:id', optionalAuth, async (req, res) => {
     comment_count: number;
     user_id: number;
   }>(
-    `SELECT p.id, p.user_id, p.text, p.image_url, p.visibility, p.like_count, p.created_at, p.updated_at,
+    `SELECT p.id, p.user_id, p.text, p.image_url, p.category, p.visibility, p.like_count, p.created_at, p.updated_at,
             u.username, u.display_name, u.avatar_url,
             (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count
      FROM posts p
@@ -255,6 +281,7 @@ postsRouter.get('/:id', optionalAuth, async (req, res) => {
     id: row.id,
     text: row.text,
     imageUrl: row.image_url,
+    category: row.category ?? 'all',
     likeCount: row.like_count,
     visibility,
     createdAt: row.created_at,
@@ -275,8 +302,8 @@ postsRouter.put('/:id', requireAuth, async (req, res) => {
   const role = (req as AuthedRequest).user.role;
 
   const db = await getDb();
-  const post = await db.get<{ user_id: number; text: string; image_url: string | null }>(
-    'SELECT user_id, text, image_url FROM posts WHERE id = ?',
+  const post = await db.get<{ user_id: number; text: string; image_url: string | null; category: PostCategory }>(
+    'SELECT user_id, text, image_url, category FROM posts WHERE id = ?',
     postId,
   );
   if (!post) return res.status(404).json({ error: 'Not found' });
@@ -290,11 +317,13 @@ postsRouter.put('/:id', requireAuth, async (req, res) => {
   const text = parsed.data.text !== undefined ? parsed.data.text.trim() : undefined;
   const imageUrl = parsed.data.imageUrl !== undefined ? parsed.data.imageUrl.trim() : undefined;
   const visibility = parsed.data.visibility as PostVisibility | undefined;
+  const category = parsed.data.category as PostCategory | undefined;
   await db.run(
-    "UPDATE posts SET text = COALESCE(?, text), image_url = COALESCE(?, image_url), visibility = COALESCE(?, visibility), updated_at = datetime('now') WHERE id = ?",
+    "UPDATE posts SET text = COALESCE(?, text), image_url = COALESCE(?, image_url), visibility = COALESCE(?, visibility), category = COALESCE(?, category), updated_at = datetime('now') WHERE id = ?",
     text ?? null,
     imageUrl === '' ? null : (imageUrl ?? null),
     visibility ?? null,
+    category ?? null,
     postId,
   );
 

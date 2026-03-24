@@ -7,6 +7,7 @@ Core features:
 - Feed: image posts via URLs, likes, comments
 - Social: friends + friends-only feed scope
 - Post visibility: `public` or `friends` (no `private`)
+- Post categories: `all`, `food`, `studies`, `jobs`, `travel`, `others`
 - Notifications: in-app notifications + unread badge
 - Search: users + posts
 - Admin: analytics dashboard + read-only SQL console
@@ -66,7 +67,7 @@ Functional capability requirements:
 - `npm -w server run seed:test` is intended for demos and is deterministic.
 - By default it resets the database so each run starts from the same state.
 - To keep existing data: `npm -w server run seed:test -- --no-force`
-- Seeded content does not rely on external image URLs (offline-friendly).
+- Seeded posts use fixed image URLs for stable demo content.
  - The SQLite data directory is created automatically on first run.
 
 ## Scripts
@@ -136,6 +137,7 @@ Stores user-created posts.
 | `created_at` | TEXT | Defaults to current timestamp |
 | `updated_at` | TEXT | Nullable |
 | `visibility` | TEXT | Defaults to `public`; used for access control |
+| `category` | TEXT | Defaults to `all`; used for feed/category filtering |
 
 ### `likes`
 Associative table between users and posts.

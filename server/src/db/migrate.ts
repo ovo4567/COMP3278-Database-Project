@@ -22,6 +22,7 @@ export const runMigrations = async (): Promise<void> => {
     '006_friendships.sql',
     '007_post_visibility_notifications.sql',
     '008_visibility_no_private.sql',
+    '009_post_category.sql',
   ];
 
   for (const name of migrationFiles) {

@@ -260,6 +260,7 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
               id: updated.id,
               text: updated.text,
               imageUrl: updated.imageUrl,
+              category: updated.category,
               visibility: updated.visibility,
               likeCount: updated.likeCount,
               likedByMe: updated.likedByMe,

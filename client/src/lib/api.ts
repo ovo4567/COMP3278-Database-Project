@@ -12,6 +12,7 @@ import type {
   FriendRequestItem,
   FriendUser,
   NotificationItem,
+  PostCategory,
 } from './types';
 
 type ApiError = { error: string };
@@ -124,14 +125,15 @@ export const usersApi = {
 };
 
 export const postsApi = {
-  async create(input: { text: string; imageUrl?: string; visibility?: 'public' | 'friends' }): Promise<{ id: number }> {
+  async create(input: { text: string; imageUrl?: string; visibility?: 'public' | 'friends'; category?: PostCategory }): Promise<{ id: number }> {
     return apiFetch('/api/posts', { method: 'POST', body: input, auth: true });
   },
 
-  async feed(params: { sort: 'new' | 'popular'; scope?: 'global' | 'friends'; limit?: number; cursor?: string | null }): Promise<{ items: FeedPost[]; nextCursor: string | null }> {
+  async feed(params: { sort: 'new' | 'popular'; scope?: 'global' | 'friends'; category?: PostCategory; limit?: number; cursor?: string | null }): Promise<{ items: FeedPost[]; nextCursor: string | null }> {
     const q = new URLSearchParams();
     q.set('sort', params.sort);
     if (params.scope) q.set('scope', params.scope);
+    q.set('category', params.category ?? 'all');
     q.set('limit', String(params.limit ?? 20));
     if (params.cursor) q.set('cursor', params.cursor);
     return apiFetch(`/api/posts/feed?${q.toString()}`, { auth: true });
@@ -148,7 +150,7 @@ export const postsApi = {
     return apiFetch(`/api/posts/${postId}`, { auth: true });
   },
 
-  async edit(postId: number, input: { text?: string; imageUrl?: string | null; visibility?: 'public' | 'friends' }): Promise<{ ok: true }> {
+  async edit(postId: number, input: { text?: string; imageUrl?: string | null; visibility?: 'public' | 'friends'; category?: PostCategory }): Promise<{ ok: true }> {
     return apiFetch(`/api/posts/${postId}`, { method: 'PUT', body: input, auth: true });
   },
 

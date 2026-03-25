@@ -253,21 +253,10 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
   }, [items, profile]);
 
   const updateProfilePost = (updated: FeedPost) => {
+    const { user: _user, ...rest } = updated;
     setItems((prev) =>
       prev.map((item) =>
-        item.id === updated.id
-          ? {
-              id: updated.id,
-              text: updated.text,
-              imageUrl: updated.imageUrl,
-              category: updated.category,
-              visibility: updated.visibility,
-              likeCount: updated.likeCount,
-              likedByMe: updated.likedByMe,
-              createdAt: updated.createdAt,
-              updatedAt: updated.updatedAt,
-            }
-          : item,
+        item.id === updated.id ? { ...item, ...rest } : item,
       ),
     );
   };

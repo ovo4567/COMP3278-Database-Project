@@ -5,14 +5,16 @@ import type {
   AdminSqlResult,
   Comment,
   FeedPost,
-  PostDetail,
-  User,
-  UserProfile,
-  SearchResults,
-  FriendRequestItem,
-  FriendUser,
+  ManagedPost,
   NotificationItem,
   PostCategory,
+  PostDetail,
+  PostStatus,
+  SearchResults,
+  User,
+  UserProfile,
+  FriendRequestItem,
+  FriendUser,
 } from './types';
 
 type ApiError = { error: string };
@@ -54,19 +56,16 @@ export const apiFetch = async <T>(
   if (options.body !== undefined) headers['content-type'] = 'application/json';
   if (auth) {
     let token = tokenStorage.getAccessToken();
-    if (!token && tokenStorage.getRefreshToken()) {
-      token = await refreshAccessToken();
-    }
+    if (!token && tokenStorage.getRefreshToken()) token = await refreshAccessToken();
     if (token) headers.authorization = `Bearer ${token}`;
   }
 
-  const doRequest = async (): Promise<Response> => {
-    return fetch(`${config.apiBase}${path}`, {
+  const doRequest = async (): Promise<Response> =>
+    fetch(`${config.apiBase}${path}`, {
       method,
       headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
     });
-  };
 
   let res = await doRequest();
   if ((res.status === 401 || res.status === 403) && auth && tokenStorage.getRefreshToken()) {
@@ -98,9 +97,7 @@ export const authApi = {
 
   async logout(): Promise<void> {
     const refreshToken = tokenStorage.getRefreshToken();
-    if (refreshToken) {
-      await apiFetch('/api/auth/logout', { method: 'POST', body: { refreshToken } });
-    }
+    if (refreshToken) await apiFetch('/api/auth/logout', { method: 'POST', body: { refreshToken } });
   },
 
   async me(): Promise<User> {
@@ -115,21 +112,34 @@ export const authApi = {
   }): Promise<UserProfile> {
     return apiFetch('/api/me', { method: 'PATCH', body: input, auth: true });
   },
+
 };
 
 export const usersApi = {
   async getProfile(username: string): Promise<UserProfile> {
-    // Use auth when available so `optionalAuth` can include `friendship` status.
     return apiFetch(`/api/users/${encodeURIComponent(username)}`, { auth: true });
   },
 };
 
 export const postsApi = {
-  async create(input: { text: string; imageUrl?: string; visibility?: 'public' | 'friends'; category?: PostCategory }): Promise<{ id: number }> {
+  async create(input: {
+    text?: string;
+    imageUrl?: string;
+    visibility?: 'public' | 'friends';
+    category?: PostCategory;
+    status?: PostStatus;
+    scheduledPublishAt?: string | null;
+  }): Promise<{ id: number; status: PostStatus }> {
     return apiFetch('/api/posts', { method: 'POST', body: input, auth: true });
   },
 
-  async feed(params: { sort: 'new' | 'popular'; scope?: 'global' | 'friends'; category?: PostCategory; limit?: number; cursor?: string | null }): Promise<{ items: FeedPost[]; nextCursor: string | null }> {
+  async feed(params: {
+    sort: 'new' | 'popular';
+    scope?: 'global' | 'friends';
+    category?: PostCategory;
+    limit?: number;
+    cursor?: string | null;
+  }): Promise<{ items: FeedPost[]; nextCursor: string | null }> {
     const q = new URLSearchParams();
     q.set('sort', params.sort);
     if (params.scope) q.set('scope', params.scope);
@@ -150,7 +160,22 @@ export const postsApi = {
     return apiFetch(`/api/posts/${postId}`, { auth: true });
   },
 
-  async edit(postId: number, input: { text?: string; imageUrl?: string | null; visibility?: 'public' | 'friends'; category?: PostCategory }): Promise<{ ok: true }> {
+  async getManage(postId: number): Promise<ManagedPost> {
+    return apiFetch(`/api/posts/${postId}/manage`, { auth: true });
+  },
+
+  async listManaged(): Promise<{ items: ManagedPost[] }> {
+    return apiFetch('/api/posts/mine/manage', { auth: true });
+  },
+
+  async edit(postId: number, input: {
+    text?: string;
+    imageUrl?: string | null;
+    visibility?: 'public' | 'friends';
+    category?: PostCategory;
+    status?: PostStatus;
+    scheduledPublishAt?: string | null;
+  }): Promise<{ ok: true; status: PostStatus }> {
     return apiFetch(`/api/posts/${postId}`, { method: 'PUT', body: input, auth: true });
   },
 
@@ -161,6 +186,18 @@ export const postsApi = {
   async toggleLike(postId: number): Promise<{ liked: boolean; likeCount: number }> {
     return apiFetch(`/api/posts/${postId}/like`, { method: 'POST', auth: true });
   },
+
+  async toggleCollect(postId: number): Promise<{ collected: boolean; collectCount: number }> {
+    return apiFetch(`/api/posts/${postId}/collect`, { method: 'POST', auth: true });
+  },
+
+  async collectionsMine(params: { limit?: number; cursor?: number | null } = {}): Promise<{ items: FeedPost[]; nextCursor: number | null }> {
+    const q = new URLSearchParams();
+    q.set('limit', String(params.limit ?? 30));
+    if (params.cursor) q.set('cursor', String(params.cursor));
+    return apiFetch(`/api/posts/collections/mine?${q.toString()}`, { auth: true });
+  },
+
 };
 
 export const commentsApi = {
@@ -171,8 +208,16 @@ export const commentsApi = {
     return apiFetch(`/api/comments/post/${postId}?${q.toString()}`, { auth: true });
   },
 
-  async create(postId: number, input: { text: string }): Promise<{ id: number }> {
+  async create(postId: number, input: { text: string; parentCommentId?: number | null }): Promise<{ id: number }> {
     return apiFetch(`/api/comments/post/${postId}`, { method: 'POST', body: input, auth: true });
+  },
+
+  async toggleLike(commentId: number): Promise<{ liked: boolean; likeCount: number }> {
+    return apiFetch(`/api/comments/${commentId}/like`, { method: 'POST', auth: true });
+  },
+
+  async toggleCollect(commentId: number): Promise<{ collected: boolean; collectCount: number }> {
+    return apiFetch(`/api/comments/${commentId}/collect`, { method: 'POST', auth: true });
   },
 };
 

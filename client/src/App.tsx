@@ -8,6 +8,8 @@ import { ProfilePage } from './pages/ProfilePage';
 import { AdminPage } from './pages/AdminPage';
 import { PostPage } from './pages/PostPage';
 import { SearchPage } from './pages/SearchPage';
+import { CollectionsPage } from './pages/CollectionsPage';
+import { PostEditorPage } from './pages/PostEditorPage';
 import { authApi } from './lib/api';
 import { tokenStorage } from './lib/storage';
 import type { User } from './lib/types';
@@ -122,6 +124,9 @@ export default function App() {
         <Routes location={location}>
           <Route path="/" element={<FeedPage currentUser={user} />} />
           <Route path="/search" element={<SearchPage currentUser={user} />} />
+          <Route path="/collections" element={<CollectionsPage currentUser={user} />} />
+          <Route path="/compose" element={<PostEditorPage currentUser={user} />} />
+          <Route path="/compose/:id" element={<PostEditorPage currentUser={user} />} />
           <Route path="/p/:id" element={<PostPage currentUser={user} />} />
           <Route path="/u/:username" element={<ProfilePage currentUser={user} onUserUpdated={setUser} />} />
           <Route path="/admin" element={<AdminPage currentUser={user} />} />

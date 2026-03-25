@@ -2,7 +2,7 @@ import { getDb } from '../db/sqlite.js';
 
 export type PostVisibility = 'public' | 'friends';
 
-type PostRow = { user_id: number; visibility: PostVisibility };
+type PostRow = { user_id: number; visibility: PostVisibility; status: 'draft' | 'scheduled' | 'published' };
 
 export const areFriends = async (viewerId: number, otherUserId: number): Promise<boolean> => {
   if (viewerId === otherUserId) return true;
@@ -22,7 +22,8 @@ export const canViewPostByOwner = async (viewerId: number | null, ownerUserId: n
 
 export const canViewPost = async (postId: number, viewerId: number | null): Promise<boolean> => {
   const db = await getDb();
-  const row = await db.get<PostRow>('SELECT user_id, visibility FROM posts WHERE id = ?', postId);
+  const row = await db.get<PostRow>('SELECT user_id, visibility, status FROM posts WHERE id = ?', postId);
   if (!row) return false;
+  if (row.status !== 'published') return viewerId === row.user_id;
   return canViewPostByOwner(viewerId, row.user_id, row.visibility);
 };

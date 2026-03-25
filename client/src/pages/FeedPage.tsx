@@ -205,7 +205,28 @@ export function FeedPage(props: { currentUser: User | null }) {
       </section>
 
       {canPost ? (
-        <PostComposer currentUser={props.currentUser} onSubmit={submitPost} />
+        <div className="space-y-4">
+          <div className="ui-panel ui-panel-soft rounded-[28px] p-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">Post studio</div>
+                <div className="ui-muted mt-1 max-w-2xl text-sm">
+                  Open the full create and edit page when you need draft saving, scheduled publishing, or visibility controls.
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Link to="/compose" className="ui-btn ui-btn-primary rounded-full px-4 py-2">
+                  Open post studio
+                </Link>
+                <Link to="/collections" className="ui-btn rounded-full px-4 py-2">
+                  View collections
+                </Link>
+              </div>
+            </div>
+          </div>
+
+          <PostComposer currentUser={props.currentUser} onSubmit={submitPost} />
+        </div>
       ) : (
         <div className="ui-empty ui-appear-up">
           <div className="ui-empty-icon">✍️</div>
@@ -262,9 +283,9 @@ export function FeedPage(props: { currentUser: User | null }) {
                 </button>
               ) : null}
               {props.currentUser ? (
-                <button type="button" className="ui-btn ui-btn-primary rounded-full px-4 py-2" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+                <Link to="/compose" className="ui-btn ui-btn-primary rounded-full px-4 py-2">
                   Create a post
-                </button>
+                </Link>
               ) : (
                 <Link to="/signup" className="ui-btn ui-btn-primary rounded-full px-4 py-2">
                   Join to start posting

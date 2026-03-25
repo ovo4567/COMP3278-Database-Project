@@ -49,22 +49,24 @@ export function CommentsPanel(props: { postId: number; currentUser: User | null 
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">Conversation</div>
-          <div className="ui-muted mt-1 text-xs">Jump in with a reply or browse older comments.</div>
+          <div className="ui-muted mt-1 text-xs">Read comments and add your own reply.</div>
         </div>
         <div className="ui-badge ui-system">{items.length} shown</div>
       </div>
 
       {props.currentUser ? (
-        <form onSubmit={submit} className="mt-4 flex flex-col gap-2 sm:flex-row">
-          <input
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Write a thoughtful reply"
-            className="ui-input"
-          />
-          <button className="ui-btn ui-btn-primary shrink-0 rounded-full px-4 py-2" type="submit">
-            Send
-          </button>
+        <form onSubmit={submit} className="mt-4 space-y-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <input
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Write a comment"
+              className="ui-input"
+            />
+            <button className="ui-btn ui-btn-primary shrink-0 rounded-full px-4 py-2" type="submit">
+              Send
+            </button>
+          </div>
         </form>
       ) : (
         <div className="mt-4 rounded-2xl border border-[rgb(var(--ui-border-rgb)_/_0.65)] bg-white/40 px-4 py-3 text-sm dark:bg-white/5">
@@ -111,12 +113,7 @@ export function CommentsPanel(props: { postId: number; currentUser: User | null 
       </div>
 
       <div className="mt-4 flex justify-end">
-        <button
-          disabled={loading || !nextCursor}
-          onClick={() => void load(false)}
-          className="ui-btn rounded-full px-4 py-2 disabled:opacity-50"
-          type="button"
-        >
+        <button disabled={loading || !nextCursor} onClick={() => void load(false)} className="ui-btn rounded-full px-4 py-2 disabled:opacity-50" type="button">
           {nextCursor ? (loading ? 'Loading…' : 'Load older comments') : 'No more comments'}
         </button>
       </div>

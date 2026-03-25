@@ -13,6 +13,7 @@ import { runMigrations } from '../src/db/migrate.js';
 import { getDb } from '../src/db/sqlite.js';
 import { hashPassword } from '../src/auth/passwords.js';
 import { createNotification } from '../src/services/notifications.js';
+import { lookupLocation } from '../src/services/location.js';
 import type { PostCategory } from '../src/social/categories.js';
 
 type SeedUserInput = {
@@ -32,6 +33,14 @@ type SeededUser = {
 
 type SeededPost = {
   id: number;
+  userId: number;
+  createdAt: Date;
+  status: 'draft' | 'scheduled' | 'published';
+};
+
+type SeededComment = {
+  id: number;
+  postId: number;
   userId: number;
   createdAt: Date;
 };
@@ -104,6 +113,30 @@ const imageUrlForCategory = (category: PostCategory, sequence: number): string =
 
 const normalizePair = (a: number, b: number) => (a < b ? { user1: a, user2: b } : { user1: b, user2: a });
 
+const seedIps = [
+  '127.0.0.1',
+  '203.0.113.21',
+  '198.51.100.34',
+  '203.0.113.88',
+  '198.51.100.109',
+  '203.0.113.144',
+  '198.51.100.171',
+  '203.0.113.203',
+  '198.51.100.230',
+  '203.0.113.245',
+] as const;
+
+const networkForUserIndex = (userIndex: number) => {
+  const ip = seedIps[userIndex % seedIps.length]!;
+  const location = lookupLocation(ip);
+  return {
+    ip,
+    country: location.country,
+    region: location.region,
+    city: location.city,
+  };
+};
+
 const resetAllData = async (force: boolean) => {
   const db = await getDb();
 
@@ -116,6 +149,10 @@ const resetAllData = async (force: boolean) => {
     await db.run('DELETE FROM sessions');
     await db.run('DELETE FROM notifications');
 
+    await db.run('DELETE FROM comment_collections');
+    await db.run('DELETE FROM comment_likes');
+    await db.run('DELETE FROM post_views');
+    await db.run('DELETE FROM post_collections');
     await db.run('DELETE FROM likes');
     await db.run('DELETE FROM comments');
     await db.run('DELETE FROM posts');
@@ -349,64 +386,125 @@ const seedPosts = async (users: SeededUser[]): Promise<SeededPost[]> => {
       const category = template.category;
       const hasImage = sequence % 3 !== 1;
       const imageUrl = hasImage ? imageUrlForCategory(category, sequence) : null;
+      const network = networkForUserIndex(userIndex);
+      const status = i === postsPerUser - 1 ? (userIndex % 2 === 0 ? 'draft' : 'scheduled') : 'published';
+      const publishedAt = status === 'published' ? createdAt : null;
+      const scheduledPublishAt = status === 'scheduled' ? new Date(Date.now() + (userIndex + 6) * 60 * 60 * 1000) : null;
+      const draftSavedAt = status === 'draft' ? new Date(createdAt.getTime() + 20 * 60 * 1000) : null;
       const result = await db.run(
-        'INSERT INTO posts(user_id, text, image_url, visibility, category, like_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, NULL)',
+        `INSERT INTO posts(
+          user_id, text, image_url, visibility, category, status, scheduled_publish_at, published_at, draft_saved_at,
+          like_count, view_count, collect_count,
+          author_ip, author_country, author_region, author_city,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?, NULL)`,
         u.id,
         template.text,
         imageUrl,
         template.visibility,
         category,
+        status,
+        scheduledPublishAt ? toSqliteDateTime(scheduledPublishAt) : null,
+        publishedAt ? toSqliteDateTime(publishedAt) : null,
+        draftSavedAt ? toSqliteDateTime(draftSavedAt) : null,
+        network.ip,
+        network.country,
+        network.region,
+        network.city,
         toSqliteDateTime(createdAt),
       );
 
       const postId = result.lastID as number;
-      posts.push({ id: postId, userId: u.id, createdAt });
+      posts.push({ id: postId, userId: u.id, createdAt, status });
     }
   }
 
   return posts;
 };
 
-const seedComments = async (users: SeededUser[], posts: SeededPost[]) => {
+const seedComments = async (users: SeededUser[], posts: SeededPost[]): Promise<SeededComment[]> => {
   const db = await getDb();
-
-  const chatTemplates = [
-    'This looks great. Where did you take this?',
-    'Super clean setup. I should copy this workflow.',
-    'Noted. I am trying this tomorrow.',
-    'Big yes to this idea.',
-    'Thanks for sharing. Needed this today.',
-    'How long did this take you to prepare?',
-    'This spot is on my list now.',
-    'Nice update, keep posting these.',
-    'I had the same experience last week.',
-    'Can you share more details when free?',
-    'This is actually very helpful.',
-    'Saved this for later reference.',
-  ];
+  const comments: SeededComment[] = [];
 
   for (let postIndex = 0; postIndex < posts.length; postIndex++) {
     const p = posts[postIndex]!;
+    if (p.status !== 'published') continue;
+
     const ownerIndex = users.findIndex((u) => u.id === p.userId);
     const participants = users.filter((u) => u.id !== p.userId);
-    const count = 4;
+    const owner = ownerIndex >= 0 ? users[ownerIndex]! : participants[0]!;
+    const firstCommenter = participants[postIndex % participants.length]!;
+    const secondCommenter = participants[(postIndex + 1) % participants.length]!;
+    const thirdCommenter = participants[(postIndex + 2) % participants.length]!;
 
-    for (let i = 0; i < count; i++) {
-      const commenter =
-        i === 2 && ownerIndex >= 0
-          ? users[ownerIndex]!
-          : participants[(postIndex + i) % participants.length]!;
+    const commentPlan = [
+      {
+        commenter: firstCommenter,
+        parentCommentId: null,
+        text: 'This looks great. Where did you take this?',
+        mentionUser: null,
+      },
+      {
+        commenter: secondCommenter,
+        parentCommentId: null,
+        text: `@${owner.username} this is a strong update. I saved a few ideas from it.`,
+        mentionUser: owner,
+      },
+      {
+        commenter: owner,
+        parentCommentId: 'first',
+        text: `@${firstCommenter.username} Thanks. I can share more details later today.`,
+        mentionUser: firstCommenter,
+      },
+      {
+        commenter: thirdCommenter,
+        parentCommentId: 'second',
+        text: `@${secondCommenter.username} Same here. The image and note combo works really well.`,
+        mentionUser: secondCommenter,
+      },
+    ] as const;
+
+    let firstCommentId: number | null = null;
+    let secondCommentId: number | null = null;
+
+    for (let i = 0; i < commentPlan.length; i++) {
+      const plan = commentPlan[i]!;
       const createdAt = new Date(p.createdAt.getTime() + (i + 1) * 35 * 60 * 1000);
+      const commenterIndex = users.findIndex((u) => u.id === plan.commenter.id);
+      const network = networkForUserIndex(Math.max(commenterIndex, 0));
+      const parentCommentId =
+        plan.parentCommentId === 'first'
+          ? firstCommentId
+          : plan.parentCommentId === 'second'
+            ? secondCommentId
+            : null;
 
-      await db.run(
-        'INSERT INTO comments(post_id, user_id, text, created_at) VALUES (?, ?, ?, ?)',
+      const result = await db.run(
+        `INSERT INTO comments(
+          post_id, user_id, parent_comment_id, text, like_count, collect_count,
+          author_ip, author_country, author_region, author_city, created_at
+        ) VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?)`,
         p.id,
-        commenter.id,
-        chatTemplates[(postIndex * count + i) % chatTemplates.length]!,
+        plan.commenter.id,
+        parentCommentId,
+        plan.text,
+        network.ip,
+        network.country,
+        network.region,
+        network.city,
         toSqliteDateTime(createdAt),
       );
+
+      const commentId = result.lastID as number;
+      comments.push({ id: commentId, postId: p.id, userId: plan.commenter.id, createdAt });
+
+      if (i === 0) firstCommentId = commentId;
+      if (i === 1) secondCommentId = commentId;
+
     }
   }
+
+  return comments;
 };
 
 const seedLikes = async (users: SeededUser[], posts: SeededPost[]) => {
@@ -415,6 +513,7 @@ const seedLikes = async (users: SeededUser[], posts: SeededPost[]) => {
   for (const u of users) {
     const pLike = randFloat(0.3, 0.7);
     for (const p of posts) {
+      if (p.status !== 'published') continue;
       if (Math.random() > pLike) continue;
       const createdAt = dateBetween(p.createdAt, new Date());
       await db.run(
@@ -427,6 +526,83 @@ const seedLikes = async (users: SeededUser[], posts: SeededPost[]) => {
   }
 
   await db.run('UPDATE posts SET like_count = (SELECT COUNT(*) FROM likes l WHERE l.post_id = posts.id)');
+};
+
+const seedPostCollections = async (users: SeededUser[], posts: SeededPost[]) => {
+  const db = await getDb();
+
+  for (const user of users) {
+    const pCollect = randFloat(0.18, 0.42);
+    for (const post of posts) {
+      if (post.status !== 'published' || post.userId === user.id || Math.random() > pCollect) continue;
+      const createdAt = dateBetween(post.createdAt, new Date());
+      await db.run(
+        'INSERT OR IGNORE INTO post_collections(user_id, post_id, created_at) VALUES (?, ?, ?)',
+        user.id,
+        post.id,
+        toSqliteDateTime(createdAt),
+      );
+    }
+  }
+
+  await db.run('UPDATE posts SET collect_count = (SELECT COUNT(*) FROM post_collections pc WHERE pc.post_id = posts.id)');
+};
+
+const seedPostViews = async (users: SeededUser[], posts: SeededPost[]) => {
+  const db = await getDb();
+
+  for (const post of posts) {
+    if (post.status !== 'published') continue;
+
+    const viewCount = randInt(6, 18);
+    for (let i = 0; i < viewCount; i++) {
+      const maybeViewer = Math.random() < 0.72 ? pickOne(users) : null;
+      const createdAt = dateBetween(post.createdAt, new Date());
+      await db.run(
+        'INSERT INTO post_views(post_id, viewer_user_id, viewer_session, created_at) VALUES (?, ?, ?, ?)',
+        post.id,
+        maybeViewer?.id ?? null,
+        // Anonymous demo views do not have a persisted session row.
+        null,
+        toSqliteDateTime(createdAt),
+      );
+    }
+  }
+
+  await db.run('UPDATE posts SET view_count = (SELECT COUNT(*) FROM post_views pv WHERE pv.post_id = posts.id)');
+};
+
+const seedCommentInteractions = async (users: SeededUser[], comments: SeededComment[]) => {
+  const db = await getDb();
+
+  for (const comment of comments) {
+    for (const user of users) {
+      if (user.id === comment.userId) continue;
+
+      if (Math.random() < 0.38) {
+        const createdAt = dateBetween(comment.createdAt, new Date());
+        await db.run(
+          'INSERT OR IGNORE INTO comment_likes(user_id, comment_id, created_at) VALUES (?, ?, ?)',
+          user.id,
+          comment.id,
+          toSqliteDateTime(createdAt),
+        );
+      }
+
+      if (Math.random() < 0.16) {
+        const createdAt = dateBetween(comment.createdAt, new Date());
+        await db.run(
+          'INSERT OR IGNORE INTO comment_collections(user_id, comment_id, created_at) VALUES (?, ?, ?)',
+          user.id,
+          comment.id,
+          toSqliteDateTime(createdAt),
+        );
+      }
+    }
+  }
+
+  await db.run('UPDATE comments SET like_count = (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = comments.id)');
+  await db.run('UPDATE comments SET collect_count = (SELECT COUNT(*) FROM comment_collections cc WHERE cc.comment_id = comments.id)');
 };
 
 const seedFriendships = async (users: SeededUser[]) => {
@@ -529,10 +705,19 @@ const main = async () => {
   const posts = await seedPosts(regularUsers);
 
   console.log('Creating comments...');
-  await seedComments(regularUsers, posts);
+  const comments = await seedComments(regularUsers, posts);
 
   console.log('Creating likes...');
   await seedLikes(regularUsers, posts);
+
+  console.log('Creating collections...');
+  await seedPostCollections(regularUsers, posts);
+
+  console.log('Creating post views...');
+  await seedPostViews(regularUsers, posts);
+
+  console.log('Creating comment interactions...');
+  await seedCommentInteractions(regularUsers, comments);
 
   console.log('Done seeding test data.');
   console.log('Accounts:');

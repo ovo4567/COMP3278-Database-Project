@@ -2,44 +2,97 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { getDb } from '../db/sqlite.js';
 import { optionalAuth, requireAuth, type AuthedRequest, type MaybeAuthedRequest } from '../middleware/auth.js';
-import { emitEvent } from '../realtime.js';
+import { emitEvent, emitToUserRoom } from '../realtime.js';
 import { canViewPost } from '../social/visibility.js';
+import { createNotification, type NotificationPayload } from '../services/notifications.js';
+import { lookupLocation, formatLocation } from '../services/location.js';
+import { publishDueScheduledPosts } from '../services/publish.js';
 
 export const commentsRouter = Router();
 
 const createCommentSchema = z.object({
   text: z.string().min(1).max(2000),
+  parentCommentId: z.number().int().positive().optional(),
 });
 
+const emitNotification = (userId: number, notification: NotificationPayload) => {
+  emitToUserRoom(userId, { type: 'notification_created', notification });
+};
+
+const mentionRegex = /(^|\s)@([a-zA-Z0-9_]+)/g;
+
+const extractMentions = (text: string): string[] => {
+  const mentions = new Set<string>();
+  for (const match of text.matchAll(mentionRegex)) {
+    const username = match[2]?.toLowerCase();
+    if (username) mentions.add(username);
+  }
+  return [...mentions];
+};
+
+const getPublishedPostForDiscussion = async (postId: number) => {
+  const db = await getDb();
+  return db.get<{ id: number; user_id: number; status: 'draft' | 'scheduled' | 'published' }>(
+    'SELECT id, user_id, status FROM posts WHERE id = ?',
+    postId,
+  );
+};
+
 commentsRouter.get('/post/:postId', optionalAuth, async (req, res) => {
+  await publishDueScheduledPosts();
   const postId = Number(req.params.postId);
   if (!Number.isFinite(postId)) return res.status(400).json({ error: 'Invalid post id' });
 
   const viewerId = (req as MaybeAuthedRequest).user?.sub ? Number((req as MaybeAuthedRequest).user?.sub) : null;
+  const post = await getPublishedPostForDiscussion(postId);
+  if (!post) return res.status(404).json({ error: 'Post not found' });
+  if (post.status !== 'published') return res.status(403).json({ error: 'Discussion is unavailable until the post is published' });
   if (!(await canViewPost(postId, viewerId))) return res.status(403).json({ error: 'Forbidden' });
 
   const limit = Math.min(Number(req.query.limit ?? 20), 50);
   const cursor = req.query.cursor ? Number(req.query.cursor) : null;
-
   const db = await getDb();
 
-  const whereCursor = cursor ? 'AND c.id < ?' : '';
-  const rows = await db.all<{
-    id: number;
-    text: string;
-    created_at: string;
-    username: string;
-    display_name: string | null;
-    avatar_url: string | null;
-  }[]>(
-    `SELECT c.id, c.text, c.created_at, u.username, u.display_name, u.avatar_url
+  const rows = await db.all<
+    {
+      id: number;
+      parent_comment_id: number | null;
+      text: string;
+      created_at: string;
+      like_count: number;
+      collect_count: number;
+      author_ip: string | null;
+      author_country: string | null;
+      author_region: string | null;
+      author_city: string | null;
+      username: string;
+      display_name: string | null;
+      avatar_url: string | null;
+      parent_username: string | null;
+      parent_display_name: string | null;
+      liked_by_me: 0 | 1;
+      collected_by_me: 0 | 1;
+    }[]
+  >(
+    `SELECT
+       c.id, c.parent_comment_id, c.text, c.created_at, c.like_count, c.collect_count,
+       c.author_ip, c.author_country, c.author_region, c.author_city,
+       u.username, u.display_name, u.avatar_url,
+       pu.username AS parent_username,
+       pu.display_name AS parent_display_name,
+       CASE WHEN cl.user_id IS NULL THEN 0 ELSE 1 END AS liked_by_me,
+       CASE WHEN cc.user_id IS NULL THEN 0 ELSE 1 END AS collected_by_me
      FROM comments c
      JOIN users u ON u.id = c.user_id
+     LEFT JOIN comments pc ON pc.id = c.parent_comment_id
+     LEFT JOIN users pu ON pu.id = pc.user_id
+     LEFT JOIN comment_likes cl ON cl.comment_id = c.id AND cl.user_id = ?
+     LEFT JOIN comment_collections cc ON cc.comment_id = c.id AND cc.user_id = ?
      WHERE c.post_id = ?
-     ${whereCursor}
+       ${cursor ? 'AND c.id < ?' : ''}
      ORDER BY c.id DESC
      LIMIT ?`,
-    ...(cursor ? [postId, cursor, limit + 1] : [postId, limit + 1]),
+    ...(cursor ? [viewerId, viewerId, postId, cursor, limit + 1] : [viewerId, viewerId, postId, limit + 1]),
   );
 
   const hasMore = rows.length > limit;
@@ -47,17 +100,38 @@ commentsRouter.get('/post/:postId', optionalAuth, async (req, res) => {
   const nextCursor = hasMore ? items[items.length - 1]?.id ?? null : null;
 
   return res.json({
-    items: items.map((r) => ({
-      id: r.id,
-      text: r.text,
-      createdAt: r.created_at,
-      user: { username: r.username, displayName: r.display_name, avatarUrl: r.avatar_url },
+    items: items.map((row) => ({
+      id: row.id,
+      parentCommentId: row.parent_comment_id,
+      text: row.text,
+      createdAt: row.created_at,
+      likeCount: row.like_count,
+      collectCount: row.collect_count,
+      likedByMe: Boolean(row.liked_by_me),
+      collectedByMe: Boolean(row.collected_by_me),
+      authorMeta: {
+        ip: row.author_ip,
+        location: {
+          country: row.author_country,
+          region: row.author_region,
+          city: row.author_city,
+          label: formatLocation({ country: row.author_country, region: row.author_region, city: row.author_city }),
+        },
+      },
+      parentUser: row.parent_username
+        ? {
+            username: row.parent_username,
+            displayName: row.parent_display_name,
+          }
+        : null,
+      user: { username: row.username, displayName: row.display_name, avatarUrl: row.avatar_url },
     })),
     nextCursor,
   });
 });
 
 commentsRouter.post('/post/:postId', requireAuth, async (req, res) => {
+  await publishDueScheduledPosts();
   const postId = Number(req.params.postId);
   if (!Number.isFinite(postId)) return res.status(400).json({ error: 'Invalid post id' });
 
@@ -65,16 +139,134 @@ commentsRouter.post('/post/:postId', requireAuth, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
 
   const userId = Number((req as AuthedRequest).user.sub);
+  const post = await getPublishedPostForDiscussion(postId);
+  if (!post) return res.status(404).json({ error: 'Post not found' });
+  if (post.status !== 'published') return res.status(403).json({ error: 'You can only comment after the post is published' });
+  if (!(await canViewPost(postId, userId))) return res.status(403).json({ error: 'Forbidden' });
   const db = await getDb();
 
-  if (!(await canViewPost(postId, userId))) return res.status(403).json({ error: 'Forbidden' });
+  let parentCommentAuthorId: number | null = null;
+  if (parsed.data.parentCommentId) {
+    const parent = await db.get<{ id: number; user_id: number }>(
+      'SELECT id, user_id FROM comments WHERE id = ? AND post_id = ?',
+      parsed.data.parentCommentId,
+      postId,
+    );
+    if (!parent) return res.status(404).json({ error: 'Parent comment not found' });
+    parentCommentAuthorId = parent.user_id;
+  }
 
-  const post = await db.get('SELECT id FROM posts WHERE id = ?', postId);
-  if (!post) return res.status(404).json({ error: 'Post not found' });
-
-  const result = await db.run('INSERT INTO comments(post_id, user_id, text) VALUES (?, ?, ?)', postId, userId, parsed.data.text);
+  const location = lookupLocation(req.ip);
+  const result = await db.run(
+    `INSERT INTO comments(
+       post_id, user_id, parent_comment_id, text,
+       author_ip, author_country, author_region, author_city
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    postId,
+    userId,
+    parsed.data.parentCommentId ?? null,
+    parsed.data.text.trim(),
+    req.ip ?? null,
+    location.country,
+    location.region,
+    location.city,
+  );
   const commentId = result.lastID as number;
+
+  if (parentCommentAuthorId && parentCommentAuthorId !== userId) {
+    const notification = await createNotification({
+      userId: parentCommentAuthorId,
+      type: 'comment_reply',
+      actorUserId: userId,
+      entityType: 'post',
+      entityId: postId,
+    });
+    if (notification) emitNotification(parentCommentAuthorId, notification);
+  }
+
+  const mentionedUsernames = extractMentions(parsed.data.text);
+  if (mentionedUsernames.length > 0) {
+    const placeholders = mentionedUsernames.map(() => '?').join(', ');
+    const mentionedUsers = await db.all<{ id: number; username: string }[]>(
+      `SELECT id, username FROM users WHERE lower(username) IN (${placeholders})`,
+      ...mentionedUsernames,
+    );
+
+    for (const mentioned of mentionedUsers) {
+      if (mentioned.id === userId || mentioned.id === parentCommentAuthorId) continue;
+      const notification = await createNotification({
+        userId: mentioned.id,
+        type: 'comment_mention',
+        actorUserId: userId,
+        entityType: 'post',
+        entityId: postId,
+      });
+      if (notification) emitNotification(mentioned.id, notification);
+    }
+  }
 
   emitEvent({ type: 'comment_created', postId, commentId });
   return res.json({ id: commentId });
+});
+
+commentsRouter.post('/:id/like', requireAuth, async (req, res) => {
+  const commentId = Number(req.params.id);
+  if (!Number.isFinite(commentId)) return res.status(400).json({ error: 'Invalid comment id' });
+
+  const userId = Number((req as AuthedRequest).user.sub);
+  const db = await getDb();
+  const comment = await db.get<{ id: number; post_id: number }>('SELECT id, post_id FROM comments WHERE id = ?', commentId);
+  if (!comment) return res.status(404).json({ error: 'Comment not found' });
+  const post = await getPublishedPostForDiscussion(comment.post_id);
+  if (!post || post.status !== 'published') return res.status(403).json({ error: 'Discussion is unavailable until the post is published' });
+  if (!(await canViewPost(comment.post_id, userId))) return res.status(403).json({ error: 'Forbidden' });
+
+  await db.exec('BEGIN');
+  try {
+    const existing = await db.get('SELECT 1 FROM comment_likes WHERE user_id = ? AND comment_id = ?', userId, commentId);
+    if (existing) {
+      await db.run('DELETE FROM comment_likes WHERE user_id = ? AND comment_id = ?', userId, commentId);
+      await db.run('UPDATE comments SET like_count = MAX(like_count - 1, 0) WHERE id = ?', commentId);
+    } else {
+      await db.run('INSERT INTO comment_likes(user_id, comment_id) VALUES (?, ?)', userId, commentId);
+      await db.run('UPDATE comments SET like_count = like_count + 1 WHERE id = ?', commentId);
+    }
+    const row = await db.get<{ like_count: number }>('SELECT like_count FROM comments WHERE id = ?', commentId);
+    await db.exec('COMMIT');
+    return res.json({ liked: !existing, likeCount: row?.like_count ?? 0 });
+  } catch (error) {
+    await db.exec('ROLLBACK');
+    throw error;
+  }
+});
+
+commentsRouter.post('/:id/collect', requireAuth, async (req, res) => {
+  const commentId = Number(req.params.id);
+  if (!Number.isFinite(commentId)) return res.status(400).json({ error: 'Invalid comment id' });
+
+  const userId = Number((req as AuthedRequest).user.sub);
+  const db = await getDb();
+  const comment = await db.get<{ id: number; post_id: number }>('SELECT id, post_id FROM comments WHERE id = ?', commentId);
+  if (!comment) return res.status(404).json({ error: 'Comment not found' });
+  const post = await getPublishedPostForDiscussion(comment.post_id);
+  if (!post || post.status !== 'published') return res.status(403).json({ error: 'Discussion is unavailable until the post is published' });
+  if (!(await canViewPost(comment.post_id, userId))) return res.status(403).json({ error: 'Forbidden' });
+
+  await db.exec('BEGIN');
+  try {
+    const existing = await db.get('SELECT 1 FROM comment_collections WHERE user_id = ? AND comment_id = ?', userId, commentId);
+    if (existing) {
+      await db.run('DELETE FROM comment_collections WHERE user_id = ? AND comment_id = ?', userId, commentId);
+      await db.run('UPDATE comments SET collect_count = MAX(collect_count - 1, 0) WHERE id = ?', commentId);
+    } else {
+      await db.run('INSERT INTO comment_collections(user_id, comment_id) VALUES (?, ?)', userId, commentId);
+      await db.run('UPDATE comments SET collect_count = collect_count + 1 WHERE id = ?', commentId);
+    }
+    const row = await db.get<{ collect_count: number }>('SELECT collect_count FROM comments WHERE id = ?', commentId);
+    await db.exec('COMMIT');
+    return res.json({ collected: !existing, collectCount: row?.collect_count ?? 0 });
+  } catch (error) {
+    await db.exec('ROLLBACK');
+    throw error;
+  }
 });

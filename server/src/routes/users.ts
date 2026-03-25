@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getDb } from '../db/sqlite.js';
 import { optionalAuth, type MaybeAuthedRequest } from '../middleware/auth.js';
+import { areFriends } from '../social/visibility.js';
 
 export const usersRouter = Router();
 
@@ -20,14 +21,10 @@ usersRouter.get('/:username', optionalAuth, async (req, res) => {
     avatar_url: string | null;
     status_text: string | null;
     created_at: string;
-    post_count: number;
-    likes_received: number;
     friend_count: number;
   }>(
     `SELECT u.id, u.username, u.role, u.display_name, u.bio, u.avatar_url, u.status_text, u.created_at,
-            (SELECT COUNT(*) FROM posts p WHERE p.user_id = u.id) AS post_count,
-            (SELECT COUNT(*) FROM likes l JOIN posts p2 ON p2.id = l.post_id WHERE p2.user_id = u.id) AS likes_received
-            ,(SELECT COUNT(*) FROM friendships f WHERE f.status = 'accepted' AND (f.user_id1 = u.id OR f.user_id2 = u.id)) AS friend_count
+            (SELECT COUNT(*) FROM friendships f WHERE f.status = 'accepted' AND (f.user_id1 = u.id OR f.user_id2 = u.id)) AS friend_count
      FROM users u
      WHERE lower(u.username) = lower(?)`,
     username,
@@ -35,8 +32,11 @@ usersRouter.get('/:username', optionalAuth, async (req, res) => {
 
   if (!user) return res.status(404).json({ error: 'Not found' });
 
+  const viewerIsOwner = viewerId === user.id;
+  const viewerCanSeeFriendsPosts = viewerIsOwner || (viewerId ? await areFriends(viewerId, user.id) : false);
+
   let friendship: { status: 'pending' | 'accepted' | 'rejected'; actionUserId: number | null } | null = null;
-  if (viewerId && viewerId !== user.id) {
+  if (viewerId && !viewerIsOwner) {
     const low = Math.min(viewerId, user.id);
     const high = Math.max(viewerId, user.id);
     const row = await db.get<{ status: 'pending' | 'accepted' | 'rejected'; action_user_id: number | null }>(
@@ -46,6 +46,28 @@ usersRouter.get('/:username', optionalAuth, async (req, res) => {
     );
     if (row) friendship = { status: row.status, actionUserId: row.action_user_id };
   }
+
+  const visiblePostsWhere = viewerIsOwner
+    ? ''
+    : viewerCanSeeFriendsPosts
+      ? "AND p.status = 'published' AND p.visibility IN ('public', 'friends')"
+      : "AND p.status = 'published' AND p.visibility = 'public'";
+  const visibleLikesWhere = viewerIsOwner
+    ? ''
+    : viewerCanSeeFriendsPosts
+      ? "AND p2.status = 'published' AND p2.visibility IN ('public', 'friends')"
+      : "AND p2.status = 'published' AND p2.visibility = 'public'";
+
+  const stats = await db.get<{ post_count: number; likes_received: number }>(
+    `SELECT
+       (SELECT COUNT(*) FROM posts p WHERE p.user_id = ? ${visiblePostsWhere}) AS post_count,
+       (SELECT COUNT(*)
+        FROM likes l
+        JOIN posts p2 ON p2.id = l.post_id
+        WHERE p2.user_id = ? ${visibleLikesWhere}) AS likes_received`,
+    user.id,
+    user.id,
+  );
 
   return res.json({
     id: user.id,
@@ -59,8 +81,8 @@ usersRouter.get('/:username', optionalAuth, async (req, res) => {
     friendCount: user.friend_count,
     friendship,
     stats: {
-      postCount: user.post_count,
-      likesReceived: user.likes_received,
+      postCount: stats?.post_count ?? 0,
+      likesReceived: stats?.likes_received ?? 0,
     },
   });
 });

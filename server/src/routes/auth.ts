@@ -10,6 +10,7 @@ import {
   verifyRefreshToken,
 } from '../auth/tokens.js';
 import { config } from '../config.js';
+import { lookupLocation } from '../services/location.js';
 
 const normalizeUsername = (username: string) => username.toLowerCase();
 
@@ -63,18 +64,22 @@ authRouter.post('/signup', async (req, res) => {
   const sessionId = uuidv4();
   const refreshToken = signRefreshToken({ sub: sessionId, uid: String(userId), role });
   const refreshTokenHash = hashRefreshToken(refreshToken);
+  const location = lookupLocation(req.ip);
 
   await db.run(
-    "INSERT INTO sessions(id, user_id, refresh_token_hash, expires_at, user_agent, ip) VALUES (?, ?, ?, datetime('now', ?), ?, ?)",
+    "INSERT INTO sessions(id, user_id, refresh_token_hash, expires_at, user_agent, ip, country, region, city) VALUES (?, ?, ?, datetime('now', ?), ?, ?, ?, ?, ?)",
     sessionId,
     userId,
     refreshTokenHash,
     `+${config.refreshTokenTtlSeconds} seconds`,
     req.header('user-agent') ?? null,
     req.ip,
+    location.country,
+    location.region,
+    location.city,
   );
 
-  const accessToken = signAccessToken({ sub: String(userId), username, role });
+  const accessToken = signAccessToken({ sub: String(userId), username, role, sid: sessionId });
 
   return res.json({
     accessToken,
@@ -121,18 +126,22 @@ authRouter.post('/login', async (req, res) => {
   const sessionId = uuidv4();
   const refreshToken = signRefreshToken({ sub: sessionId, uid: String(user.id), role: user.role });
   const refreshTokenHash = hashRefreshToken(refreshToken);
+  const location = lookupLocation(req.ip);
 
   await db.run(
-    "INSERT INTO sessions(id, user_id, refresh_token_hash, expires_at, user_agent, ip) VALUES (?, ?, ?, datetime('now', ?), ?, ?)",
+    "INSERT INTO sessions(id, user_id, refresh_token_hash, expires_at, user_agent, ip, country, region, city) VALUES (?, ?, ?, datetime('now', ?), ?, ?, ?, ?, ?)",
     sessionId,
     user.id,
     refreshTokenHash,
     `+${config.refreshTokenTtlSeconds} seconds`,
     req.header('user-agent') ?? null,
     req.ip,
+    location.country,
+    location.region,
+    location.city,
   );
 
-  const accessToken = signAccessToken({ sub: String(user.id), username: user.username, role: user.role });
+  const accessToken = signAccessToken({ sub: String(user.id), username: user.username, role: user.role, sid: sessionId });
 
   return res.json({
     accessToken,
@@ -185,7 +194,7 @@ authRouter.post('/refresh', async (req, res) => {
 
   await db.run("UPDATE sessions SET last_used_at = datetime('now') WHERE id = ?", sessionId);
 
-  const accessToken = signAccessToken({ sub: String(userId), username: user.username, role: user.role });
+  const accessToken = signAccessToken({ sub: String(userId), username: user.username, role: user.role, sid: sessionId });
   return res.json({ accessToken });
 });
 

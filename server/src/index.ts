@@ -7,6 +7,7 @@ import morgan from 'morgan';
 import { config } from './config.js';
 import { runMigrations } from './db/migrate.js';
 import { initRealtime } from './realtime.js';
+import { startPublishScheduler } from './services/publish.js';
 
 import { authRouter } from './routes/auth.js';
 import { postsRouter } from './routes/posts.js';
@@ -20,6 +21,7 @@ import { notificationsRouter } from './routes/notifications.js';
 
 const main = async () => {
   await runMigrations();
+  startPublishScheduler();
 
   const app = express();
   app.use(helmet());

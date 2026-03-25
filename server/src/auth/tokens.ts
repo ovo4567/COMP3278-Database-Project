@@ -6,6 +6,7 @@ export type AccessTokenClaims = {
   sub: string; // user id
   username: string;
   role: 'user' | 'admin';
+  sid?: string;
 };
 
 export const signAccessToken = (claims: AccessTokenClaims): string => {

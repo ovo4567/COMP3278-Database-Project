@@ -1,4 +1,6 @@
 export type Role = 'user' | 'admin';
+export type PostStatus = 'draft' | 'scheduled' | 'published';
+
 export const POST_CATEGORIES = ['all', 'food', 'studies', 'jobs', 'travel', 'others'] as const;
 export type PostCategory = (typeof POST_CATEGORIES)[number];
 export const POST_CATEGORY_LABELS: Record<PostCategory, string> = {
@@ -8,6 +10,18 @@ export const POST_CATEGORY_LABELS: Record<PostCategory, string> = {
   jobs: 'Jobs',
   travel: 'Travel',
   others: 'Others',
+};
+
+export type LocationSummary = {
+  country: string | null;
+  region: string | null;
+  city: string | null;
+  label: string | null;
+};
+
+export type AuthorMeta = {
+  ip: string | null;
+  location: LocationSummary;
 };
 
 export type User = {
@@ -33,10 +47,17 @@ export type FeedPost = {
   imageUrl: string | null;
   category: PostCategory;
   visibility?: 'public' | 'friends';
+  status: PostStatus;
+  scheduledPublishAt: string | null;
+  publishedAt: string | null;
   likeCount: number;
+  collectCount: number;
+  viewCount: number;
   likedByMe?: boolean;
+  collectedByMe?: boolean;
   createdAt: string;
   updatedAt: string | null;
+  authorMeta: AuthorMeta;
   user: {
     username: string;
     displayName: string | null;
@@ -44,8 +65,21 @@ export type FeedPost = {
   };
 };
 
+export type ManagedPost = FeedPost;
+
 export type PostDetail = FeedPost & {
   commentCount: number;
+};
+
+export type PostAnalytics = {
+  post: { id: number; text: string; status: PostStatus };
+  overview: {
+    views: number;
+    likes: number;
+    collects: number;
+    comments: number;
+  };
+  series: Array<{ day: string; views: number; likes: number; collects: number; comments: number }>;
 };
 
 export type AdminAnalytics = {
@@ -140,13 +174,34 @@ export type NotifyEvent =
 
 export type Comment = {
   id: number;
+  parentCommentId: number | null;
   text: string;
   createdAt: string;
+  likeCount: number;
+  collectCount: number;
+  likedByMe: boolean;
+  collectedByMe: boolean;
+  authorMeta: AuthorMeta;
+  parentUser?: {
+    username: string;
+    displayName: string | null;
+  } | null;
   user: {
     username: string;
     displayName: string | null;
     avatarUrl: string | null;
   };
+};
+
+export type DeviceSession = {
+  id: string;
+  userAgent: string | null;
+  ip: string | null;
+  location: LocationSummary;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
+  current: boolean;
 };
 
 export type RealtimeEvent =

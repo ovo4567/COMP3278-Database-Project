@@ -58,6 +58,12 @@ export function NavBar(props: { user: User | null; unreadNotifications: number; 
 
             {props.user ? (
               <>
+                <NavLink to="/collections" className={navItemClass}>
+                  Collections
+                </NavLink>
+                <NavLink to="/compose" className={navItemClass}>
+                  Post studio
+                </NavLink>
                 {props.user.role === 'admin' ? (
                   <NavLink to="/admin" className={navItemClass}>
                     Admin

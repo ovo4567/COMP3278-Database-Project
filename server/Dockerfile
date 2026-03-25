@@ -32,7 +32,7 @@ COPY package.json package-lock.json ./
 COPY server/package.json server/package.json
 
 COPY --from=build /app/server/dist ./server/dist
-COPY --from=build /app/server/migrations ./server/migrations
+COPY --from=build /app/server/schema.sql ./server/schema.sql
 
 # Keep TS sources + scripts so demo seeding can be run via:
 #   docker compose run --rm server npm run seed:test

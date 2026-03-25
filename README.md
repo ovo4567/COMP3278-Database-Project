@@ -77,7 +77,7 @@ Possible native build requirement:
 - `server/src/db/`: SQLite connection and migration logic
 - `server/src/services/`: backend service helpers
 - `server/src/realtime.ts`: Socket.IO setup
-- `server/migrations/`: SQL migrations
+- `server/schema.sql`: consolidated database schema bootstrap
 - `server/scripts/seedTestData.ts`: demo data seeding
 - `scripts/dev.cjs`: starts server and client together in development
 
@@ -94,7 +94,6 @@ Core tables:
 - `post_views`
 - `comment_likes`
 - `comment_collections`
-- `migrations`
 
 ### Relationship summary
 - `users` -> `sessions`: one-to-many through `sessions.user_id`
@@ -111,7 +110,7 @@ Core tables:
 
 ### Important schema notes
 - Usernames are stored and enforced case-insensitively.
-- The schema was hardened with rebuild migrations in `011_schema_optimization.sql` and `012_schema_rebuild.sql`.
+- The schema is consolidated into `server/schema.sql`.
 - Core enum-like fields now have DB-level `CHECK` constraints, including:
   - `users.role`
   - `posts.visibility`
@@ -194,10 +193,9 @@ Core tables:
 
 ## Database and migration notes
 - SQLite is used for persistence.
-- The server runs migrations automatically on startup via `server/src/db/migrate.ts`.
-- Migration files are manually listed in `server/src/db/migrate.ts`.
-- If you add a migration file, also add it to that list or it will not run.
-- `012_schema_rebuild.sql` is a table rebuild migration and temporarily disables foreign keys during migration, then runs `PRAGMA foreign_key_check` before commit.
+- The server initializes the schema automatically on startup via `server/src/db/migrate.ts`.
+- `server/schema.sql` is the single source of truth for fresh database initialization.
+- This project no longer uses incremental SQL migration files.
 
 ## Known gaps and risks
 - There is no automated test suite yet.
@@ -209,4 +207,4 @@ Core tables:
 ## Notes
 - Server code: `server/src/`
 - Client code: `client/src/`
-- Migrations: `server/migrations/`
+- Schema: `server/schema.sql`

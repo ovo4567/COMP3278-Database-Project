@@ -9,11 +9,14 @@
  *   npm -w server run seed:test -- --force
  */
 
+import { rm } from 'node:fs/promises';
+import path from 'node:path';
 import { runMigrations } from '../src/db/migrate.js';
 import { getDb } from '../src/db/sqlite.js';
 import { hashPassword } from '../src/auth/passwords.js';
 import { createNotification } from '../src/services/notifications.js';
 import { lookupLocation } from '../src/services/location.js';
+import { config } from '../src/config.js';
 import type { PostCategory } from '../src/social/categories.js';
 
 type SeedUserInput = {
@@ -137,38 +140,10 @@ const networkForUserIndex = (userIndex: number) => {
   };
 };
 
-const resetAllData = async (force: boolean) => {
-  const db = await getDb();
-
-  if (!force) return;
-
+const resetDatabaseFile = async (force: boolean) => {
+  if (!force || config.sqlitePath === ':memory:') return;
   console.log('Resetting database (force)...');
-  await db.exec('BEGIN');
-  try {
-    // Delete children first where it helps readability. Cascades exist on many FKs.
-    await db.run('DELETE FROM sessions');
-    await db.run('DELETE FROM notifications');
-
-    await db.run('DELETE FROM comment_collections');
-    await db.run('DELETE FROM comment_likes');
-    await db.run('DELETE FROM post_views');
-    await db.run('DELETE FROM post_collections');
-    await db.run('DELETE FROM likes');
-    await db.run('DELETE FROM comments');
-    await db.run('DELETE FROM posts');
-
-    await db.run('DELETE FROM friendships');
-
-    await db.run('DELETE FROM users');
-
-    // Reset AUTOINCREMENT counters for cleaner predictable picsum URLs.
-    await db.run('DELETE FROM sqlite_sequence');
-
-    await db.exec('COMMIT');
-  } catch (err) {
-    await db.exec('ROLLBACK');
-    throw err;
-  }
+  await rm(path.resolve(config.sqlitePath), { force: true });
 };
 
 const seedAdmin = async (): Promise<SeededUser> => {
@@ -688,11 +663,10 @@ const seedFriendships = async (users: SeededUser[]) => {
 const main = async () => {
   const { force } = parseArgs(process.argv.slice(2));
 
-  console.log('Running migrations...');
-  await runMigrations();
+  await resetDatabaseFile(force);
 
-  // For demo repos, always reset and reseed by default.
-  await resetAllData(force);
+  console.log('Initializing schema...');
+  await runMigrations();
 
   console.log('Creating users...');
   const admin = await seedAdmin();

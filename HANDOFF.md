@@ -74,7 +74,7 @@ Environment and system requirements:
 - `server/src/db/`: SQLite connection and migration logic
 - `server/src/services/`: backend helpers such as notifications, publish scheduler, and location formatting
 - `server/src/realtime.ts`: Socket.IO setup
-- `server/migrations/`: SQL migrations
+- `server/schema.sql`: consolidated database schema bootstrap
 - `server/scripts/seedTestData.ts`: demo data seeding
 - `scripts/dev.cjs`: starts server and client together in development
 
@@ -91,7 +91,6 @@ Core application tables:
 - `post_views`
 - `comment_likes`
 - `comment_collections`
-- `migrations`
 
 ### Relationship summary
 - `users` -> `sessions`: one-to-many via `sessions.user_id`
@@ -108,9 +107,7 @@ Core application tables:
 
 ### Important schema notes
 - Usernames are case-insensitive at the DB level.
-- The schema was hardened by:
-  - `011_schema_optimization.sql`
-  - `012_schema_rebuild.sql`
+- The schema is consolidated into `server/schema.sql`.
 - Native `CHECK` constraints now enforce:
   - `users.role`
   - `users.is_banned`
@@ -158,11 +155,9 @@ Important variables:
 
 ## 10. Database and Migration Notes
 - SQLite is used for persistence.
-- Migrations run automatically when the backend starts.
-- Migration files live in `server/migrations/`.
-- Migrations are manually listed in `server/src/db/migrate.ts`.
-- If a new migration file is added, it must also be added there or it will not run.
-- `012_schema_rebuild.sql` is a rebuild migration. The runner temporarily disables foreign keys for that migration, rebuilds the constrained tables, then runs `PRAGMA foreign_key_check` before commit.
+- Schema initialization runs automatically when the backend starts.
+- `server/schema.sql` is the single source of truth for fresh database initialization.
+- This project no longer uses incremental SQL migration files.
 
 ## 11. Seeding Notes
 - `npm -w server run seed:test` resets the local database by default.
@@ -203,10 +198,8 @@ The next maintainer should verify the following after setup:
 
 ## 15. Final Notes
 Before making schema changes:
-- Add a new SQL migration
-- Register it in `server/src/db/migrate.ts`
-- Test against a copied or freshly seeded database
-- If rebuilding tables, verify with `PRAGMA foreign_key_check`
+- Update `server/schema.sql`
+- Test against a freshly seeded database
 
 Before demoing:
 - Reseed the database for a clean state

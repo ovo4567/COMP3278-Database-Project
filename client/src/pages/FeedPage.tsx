@@ -82,91 +82,105 @@ export function FeedPage(props: { currentUser: User | null }) {
     <div className="ui-shell-narrow space-y-5">
       <section className="ui-hero ui-card-hover">
         <div className="pointer-events-none absolute inset-0">
-          <div className="absolute -left-10 top-6 h-36 w-36 rounded-full bg-[rgb(var(--ui-accent-rgb)_/_0.18)] blur-3xl" />
-          <div className="absolute right-10 top-8 h-28 w-28 rounded-full bg-[rgb(var(--ui-accent-2-rgb)_/_0.18)] blur-3xl" />
-          <div className="absolute bottom-0 left-1/3 h-24 w-56 -translate-x-1/2 rounded-full bg-[rgb(255_184_102_/_0.16)] blur-3xl" />
+          <div className="absolute -left-12 top-6 h-44 w-44 rounded-full bg-[rgb(var(--ui-accent-rgb)_/_0.22)] blur-3xl" />
+          <div className="absolute right-16 top-10 h-36 w-36 rounded-full bg-[rgb(var(--ui-accent-2-rgb)_/_0.18)] blur-3xl" />
+          <div className="absolute bottom-0 left-1/3 h-28 w-64 -translate-x-1/2 rounded-full bg-[rgb(255_184_102_/_0.18)] blur-3xl" />
+          <div className="absolute bottom-6 right-0 h-36 w-36 rounded-full bg-[rgb(150_230_255_/_0.2)] blur-3xl" />
         </div>
 
         <div className="relative">
-          <div className="max-w-2xl">
+          <div className="max-w-full">
             <div className="ui-kicker">Home feed</div>
-            <h1 className="ui-h1 mt-3 text-3xl sm:text-4xl">A brighter social feed with more glow, motion, and energy.</h1>
-            <div className="mt-5 flex flex-wrap items-center gap-3">
+            <h1 className="ui-h1 mt-4 text-3xl leading-tight sm:text-4xl lg:text-[3.2rem]">
+              A brighter social feed with more glow, motion, <span className="ui-brand">and energy.</span>
+            </h1>
+            <div className="mt-6 flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                className="ui-btn ui-btn-primary px-5 py-2.5"
+                className="ui-btn ui-btn-primary px-6 py-3 text-base"
                 onClick={() => window.scrollTo({ top: 340, behavior: 'smooth' })}
               >
                 Jump into the feed
               </button>
-              <div className="rounded-full border border-white/30 bg-white/35 px-4 py-2 text-sm text-gray-700 backdrop-blur-xl dark:bg-white/10 dark:text-gray-200">
-                <span className="mr-2 inline-flex h-2 w-2 rounded-full bg-[rgb(var(--ui-accent-rgb))] shadow-[0_0_14px_rgb(var(--ui-accent-rgb)_/_0.72)]" />
-                Designed for quick scans and floating interactions
+              <div className="flex items-center gap-3 rounded-full border border-white/35 bg-white/40 px-4 py-2.5 text-sm text-gray-700 shadow-[0_18px_42px_-28px_rgb(var(--ui-shadow-rgb)_/_0.42)] backdrop-blur-xl dark:bg-white/10 dark:text-gray-200">
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[linear-gradient(135deg,rgb(var(--ui-accent-rgb)_/_0.2),rgb(255_184_102_/_0.2),rgb(var(--ui-accent-2-rgb)_/_0.24))] text-[rgb(var(--ui-accent-text-rgb))]">
+                  ✦
+                </span>
+                <span>Designed for quick scans and floating interactions</span>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="ui-divider-glow my-5" />
+        <div className="ui-divider-glow my-6" />
 
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-            <div>
-              <div className="text-xs font-medium uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">Audience</div>
-              <div className="mt-2 ui-segmented">
-                <button
-                  onClick={() => setScope('global')}
-                  className={`ui-segment ${scope === 'global' ? 'ui-segment-active' : ''}`}
-                  type="button"
-                >
-                  Global
-                </button>
-                <button
-                  disabled={!props.currentUser}
-                  onClick={() => setScope('friends')}
-                  className={`ui-segment ${scope === 'friends' ? 'ui-segment-active' : ''} disabled:cursor-not-allowed disabled:opacity-50`}
-                  type="button"
-                >
-                  Friends
-                </button>
-              </div>
+        <div className="relative grid gap-3 lg:grid-cols-3">
+          <div className="rounded-[28px] border border-white/30 bg-white/36 p-4 shadow-[0_18px_42px_-30px_rgb(var(--ui-shadow-rgb)_/_0.45)] backdrop-blur-xl dark:bg-white/10">
+            <div className="text-xs font-medium uppercase tracking-[0.22em] text-gray-500 dark:text-gray-400">Audience</div>
+            <div className="mt-3 ui-segmented">
+              <button
+                onClick={() => setScope('global')}
+                className={`ui-segment ${scope === 'global' ? 'ui-segment-active' : ''}`}
+                type="button"
+              >
+                Global
+              </button>
+              <button
+                disabled={!props.currentUser}
+                onClick={() => setScope('friends')}
+                className={`ui-segment ${scope === 'friends' ? 'ui-segment-active' : ''} disabled:cursor-not-allowed disabled:opacity-50`}
+                type="button"
+              >
+                Friends
+              </button>
             </div>
-
-            <div>
-              <div className="text-xs font-medium uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">Ranking</div>
-              <div className="mt-2 ui-segmented">
-                <button
-                  onClick={() => setSort('new')}
-                  className={`ui-segment ${sort === 'new' ? 'ui-segment-active' : ''}`}
-                  type="button"
-                >
-                  New
-                </button>
-                <button
-                  onClick={() => setSort('popular')}
-                  className={`ui-segment ${sort === 'popular' ? 'ui-segment-active' : ''}`}
-                  type="button"
-                >
-                  Popular
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <div className="text-xs font-medium uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">Category</div>
-              <select value={category} onChange={(event) => setCategory(event.target.value as PostCategory)} className="ui-input mt-2 min-w-44">
-                {POST_CATEGORIES.map((option) => (
-                  <option key={option} value={option}>
-                    {POST_CATEGORY_LABELS[option]}
-                  </option>
-                ))}
-              </select>
+            <div className="ui-muted mt-3 text-xs">
+              {scope === 'global' ? 'Open the feed to the whole network.' : 'Focus on updates from your friend circle.'}
             </div>
           </div>
 
-          {!props.currentUser ? (
-            <div className="flex flex-wrap items-center gap-2 rounded-[24px] border border-white/25 bg-white/35 px-3 py-3 text-sm shadow-[0_18px_35px_-26px_rgb(var(--ui-shadow-rgb)_/_0.5)] backdrop-blur-xl dark:bg-white/10">
-              <span className="ui-muted">Log in to unlock friends-only posts and interactions.</span>
+          <div className="rounded-[28px] border border-white/30 bg-white/36 p-4 shadow-[0_18px_42px_-30px_rgb(var(--ui-shadow-rgb)_/_0.45)] backdrop-blur-xl dark:bg-white/10">
+            <div className="text-xs font-medium uppercase tracking-[0.22em] text-gray-500 dark:text-gray-400">Ranking</div>
+            <div className="mt-3 ui-segmented">
+              <button
+                onClick={() => setSort('new')}
+                className={`ui-segment ${sort === 'new' ? 'ui-segment-active' : ''}`}
+                type="button"
+              >
+                New
+              </button>
+              <button
+                onClick={() => setSort('popular')}
+                className={`ui-segment ${sort === 'popular' ? 'ui-segment-active' : ''}`}
+                type="button"
+              >
+                Popular
+              </button>
+            </div>
+            <div className="ui-muted mt-3 text-xs">
+              {sort === 'new' ? 'See the latest posts the moment they land.' : 'Let the most-liked posts rise to the top.'}
+            </div>
+          </div>
+
+          <div className="rounded-[28px] border border-white/30 bg-white/36 p-4 shadow-[0_18px_42px_-30px_rgb(var(--ui-shadow-rgb)_/_0.45)] backdrop-blur-xl dark:bg-white/10">
+            <div className="text-xs font-medium uppercase tracking-[0.22em] text-gray-500 dark:text-gray-400">Category</div>
+            <select value={category} onChange={(event) => setCategory(event.target.value as PostCategory)} className="ui-input mt-3 min-w-0">
+              {POST_CATEGORIES.map((option) => (
+                <option key={option} value={option}>
+                  {POST_CATEGORY_LABELS[option]}
+                </option>
+              ))}
+            </select>
+            <div className="ui-muted mt-3 text-xs">
+              Browsing {POST_CATEGORY_LABELS[category].toLowerCase()} conversations right now.
+            </div>
+          </div>
+        </div>
+
+        {!props.currentUser ? (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-[26px] border border-white/25 bg-white/35 px-4 py-3 text-sm shadow-[0_18px_35px_-26px_rgb(var(--ui-shadow-rgb)_/_0.5)] backdrop-blur-xl dark:bg-white/10">
+            <span className="ui-muted">Log in to unlock friends-only posts and interactions.</span>
+            <div className="flex flex-wrap gap-2">
               <Link to="/login" className="ui-btn rounded-full px-3 py-2">
                 Login
               </Link>
@@ -174,8 +188,8 @@ export function FeedPage(props: { currentUser: User | null }) {
                 Create account
               </Link>
             </div>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
       </section>
 
       {canPost ? (

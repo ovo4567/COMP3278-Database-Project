@@ -87,19 +87,10 @@ export function FeedPage(props: { currentUser: User | null }) {
           <div className="absolute bottom-0 left-1/3 h-24 w-56 -translate-x-1/2 rounded-full bg-[rgb(255_184_102_/_0.16)] blur-3xl" />
         </div>
 
-        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+        <div className="relative">
           <div className="max-w-2xl">
             <div className="ui-kicker">Home feed</div>
             <h1 className="ui-h1 mt-3 text-3xl sm:text-4xl">A brighter social feed with more glow, motion, and energy.</h1>
-            <p className="ui-muted mt-2 max-w-xl text-sm sm:text-base">
-              Float between the global pulse and your inner circle, then sort for freshest drops or hottest momentum.
-            </p>
-            <div className="mt-5 flex flex-wrap items-center gap-2">
-              <span className="ui-badge ui-system">{scope === 'global' ? 'Global pulse' : 'Friends circle'}</span>
-              <span className="ui-badge ui-system">{sort === 'new' ? 'Fresh drop mode' : 'Heat check mode'}</span>
-              <span className="ui-badge ui-system">{POST_CATEGORY_LABELS[category]} tag</span>
-              <span className="ui-badge ui-system">Live updates on</span>
-            </div>
             <div className="mt-5 flex flex-wrap items-center gap-3">
               <button
                 type="button"
@@ -111,23 +102,6 @@ export function FeedPage(props: { currentUser: User | null }) {
               <div className="rounded-full border border-white/30 bg-white/35 px-4 py-2 text-sm text-gray-700 backdrop-blur-xl dark:bg-white/10 dark:text-gray-200">
                 <span className="mr-2 inline-flex h-2 w-2 rounded-full bg-[rgb(var(--ui-accent-rgb))] shadow-[0_0_14px_rgb(var(--ui-accent-rgb)_/_0.72)]" />
                 Designed for quick scans and floating interactions
-              </div>
-            </div>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2 lg:w-[28rem]">
-            <div className="ui-stat ui-appear-up rotate-[-2deg]">
-              <div className="ui-stat-value">{scope === 'global' ? 'Discover' : 'Close friends'}</div>
-              <div className="ui-stat-label">Audience vibe</div>
-              <div className="mt-3 text-sm text-gray-700 dark:text-gray-300">
-                {scope === 'global' ? 'Open up the whole network and spot what is trending now.' : 'Keep it intimate with friend-only posts and replies.'}
-              </div>
-            </div>
-            <div className="ui-stat ui-appear-up translate-y-3 rotate-[3deg]" style={{ animationDelay: '50ms' }}>
-              <div className="ui-stat-value">{sort === 'new' ? 'Latest first' : 'Most loved'}</div>
-              <div className="ui-stat-label">Sort mode</div>
-              <div className="mt-3 text-sm text-gray-700 dark:text-gray-300">
-                {sort === 'new' ? 'Catch every fresh post the moment it lands.' : 'Let the most liked moments rise to the top.'}
               </div>
             </div>
           </div>

@@ -19,6 +19,152 @@ const formatPercent = (value: number) => `${(value * 100).toFixed(1)}%`;
 const formatDay = (value: string) =>
   new Date(`${value}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 const lastValue = (points: SeriesPoint[]) => (points.length ? points[points.length - 1]!.value : 0);
+const SQL_HISTORY_KEY = 'admin_sql_history_v1';
+const SQL_HISTORY_LIMIT = 5;
+const QUICK_QUERY_GROUPS = [
+  {
+    label: '📊 Stats',
+    items: [
+      { label: '👥 Total users', query: 'SELECT COUNT(*) AS total_users FROM users' },
+      { label: '📝 Total posts', query: 'SELECT COUNT(*) AS total_posts FROM posts' },
+      { label: '💬 Total comments', query: 'SELECT COUNT(*) AS total_comments FROM comments' },
+      { label: '❤️ Total likes', query: 'SELECT COUNT(*) AS total_likes FROM likes' },
+      {
+        label: '📊 Today registered',
+        query: "SELECT COUNT(*) AS today_registered FROM users WHERE DATE(created_at) = DATE('now')",
+      },
+      {
+        label: '📝 Today posts',
+        query: "SELECT COUNT(*) AS today_posts FROM posts WHERE DATE(created_at) = DATE('now')",
+      },
+      {
+        label: '👥 Users by role',
+        query: 'SELECT role, COUNT(*) AS count FROM users GROUP BY role',
+      },
+    ],
+  },
+  {
+    label: '🔥 Activity',
+    items: [
+      {
+        label: '🔥 7-day active users',
+        query:
+          "SELECT COUNT(DISTINCT u.id) AS active_users FROM users u LEFT JOIN posts p ON u.id = p.user_id AND DATE(p.created_at) >= DATE('now', '-7 days') LEFT JOIN comments c ON u.id = c.user_id AND DATE(c.created_at) >= DATE('now', '-7 days') WHERE p.id IS NOT NULL OR c.id IS NOT NULL",
+      },
+      {
+        label: '🆕 Latest 10 users',
+        query: 'SELECT username, created_at FROM users ORDER BY created_at DESC LIMIT 10',
+      },
+      {
+        label: '🆕 Latest 10 posts',
+        query: 'SELECT text, created_at FROM posts ORDER BY created_at DESC LIMIT 10',
+      },
+    ],
+  },
+  {
+    label: '🏆 Leaderboards',
+    items: [
+      {
+        label: '🏆 Most active users',
+        query:
+          'SELECT username, COUNT(*) as post_count FROM users u JOIN posts p ON u.id = p.user_id GROUP BY u.id ORDER BY post_count DESC LIMIT 5',
+      },
+      {
+        label: '❤️ Most liked posts',
+        query: 'SELECT id, text, like_count FROM posts ORDER BY like_count DESC LIMIT 5',
+      },
+      {
+        label: '💬 Most commented posts',
+        query:
+          'SELECT p.id, p.text, COUNT(c.id) AS comment_count FROM posts p LEFT JOIN comments c ON p.id = c.post_id GROUP BY p.id ORDER BY comment_count DESC LIMIT 5',
+      },
+      {
+        label: '👥 Most friends',
+        query:
+          "SELECT u.username, COUNT(f.user_id2) AS friend_count FROM users u LEFT JOIN friendships f ON (u.id = f.user_id1 OR u.id = f.user_id2) AND f.status = 'accepted' GROUP BY u.id ORDER BY friend_count DESC LIMIT 5",
+      },
+    ],
+  },
+  {
+    label: '📂 Categories',
+    items: [
+      {
+        label: '📂 Posts by category',
+        query: 'SELECT category, COUNT(*) AS count FROM posts GROUP BY category',
+      },
+      {
+        label: '🔔 Notifications by type',
+        query: 'SELECT type, COUNT(*) AS count FROM notifications GROUP BY type',
+      },
+    ],
+  },
+  {
+    label: '📅 Timeline',
+    items: [
+      {
+        label: '📅 Last 7 days post trend',
+        query:
+          "SELECT DATE(created_at) AS date, COUNT(*) AS count FROM posts WHERE created_at >= DATE('now', '-7 days') GROUP BY DATE(created_at) ORDER BY date",
+      },
+    ],
+  },
+] as const;
+const SUGGESTED_QUERIES = [
+  {
+    label: 'Users registered last 7 days',
+    query:
+      "SELECT date(created_at) AS day, COUNT(*) AS users_registered FROM users WHERE datetime(created_at) >= datetime('now', '-7 days') GROUP BY date(created_at) ORDER BY day DESC",
+  },
+  {
+    label: 'Posts with most comments',
+    query:
+      'SELECT p.id, p.text, COUNT(c.id) AS comment_count FROM posts p LEFT JOIN comments c ON c.post_id = p.id GROUP BY p.id ORDER BY comment_count DESC LIMIT 10',
+  },
+  {
+    label: 'Users with no posts',
+    query:
+      'SELECT u.id, u.username, u.created_at FROM users u LEFT JOIN posts p ON p.user_id = u.id WHERE p.id IS NULL ORDER BY u.created_at DESC LIMIT 20',
+  },
+  {
+    label: 'Most liked comments',
+    query:
+      'SELECT c.id, c.text, c.like_count, u.username FROM comments c JOIN users u ON u.id = c.user_id ORDER BY c.like_count DESC LIMIT 10',
+  },
+] as const;
+
+const toCellText = (value: unknown): string => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized ?? String(value);
+  } catch {
+    return String(value);
+  }
+};
+
+const formatCellForDisplay = (value: unknown): string => {
+  if (value === null || value === undefined) return '—';
+  return toCellText(value);
+};
+
+const toCsvCell = (value: string): string => {
+  if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
+  return value;
+};
+
+const buildCsvFromResult = (result: AdminSqlResult): string => {
+  if (result.columns.length === 0) return '';
+
+  const lines = [
+    result.columns.map((column) => toCsvCell(column)).join(','),
+    ...result.rows.map((row) => row.map((cell) => toCsvCell(toCellText(cell))).join(',')),
+  ];
+
+  return lines.join('\n');
+};
 
 function DashboardStat(props: {
   label: string;
@@ -242,7 +388,15 @@ function SqlPanel(props: {
   loading: boolean;
   error: string | null;
   result: AdminSqlResult | null;
+  history: string[];
+  onPickHistory: (query: string) => void;
+  onClearHistory: () => void;
+  executionMs: number | null;
+  onCopyCsv: () => void;
+  copyState: 'idle' | 'copied' | 'failed';
 }) {
+  const [selectedSuggestion, setSelectedSuggestion] = useState('');
+
   return (
     <div className="ui-panel ui-panel-soft rounded-[28px] p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -257,71 +411,194 @@ function SqlPanel(props: {
         </div>
       </div>
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-        <div>
+      <div className="mt-4 flex flex-col gap-4 lg:flex-row">
+        <div className="min-w-0 lg:w-2/3">
+          <div className="space-y-3">
+            {QUICK_QUERY_GROUPS.map((group) => (
+              <div key={group.label} className="rounded-xl border border-gray-200/80 bg-white/45 p-3 dark:border-gray-700 dark:bg-white/5">
+                <div className="text-xs font-semibold text-gray-600 dark:text-gray-300">{group.label}</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {group.items.map((quick) => (
+                    <button
+                      key={quick.label}
+                      type="button"
+                      onClick={() => props.onSqlChange(quick.query)}
+                      className="rounded-full bg-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+                    >
+                      {quick.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
           <textarea
             value={props.sql}
             onChange={(event) => props.onSqlChange(event.target.value)}
-            className="ui-textarea min-h-56 font-mono text-xs leading-6"
+            className="ui-textarea mt-4 min-h-56 rounded-xl border border-gray-200 bg-white font-mono text-xs leading-6 text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
             spellCheck={false}
           />
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
             <div className="text-xs text-gray-500 dark:text-gray-400">
               Suggested: `SELECT username, role, created_at FROM users ORDER BY created_at DESC`
             </div>
-            <button type="button" onClick={props.onRun} disabled={props.loading} className="ui-btn ui-btn-primary px-5 py-2.5 disabled:opacity-50">
-              {props.loading ? 'Running query…' : 'Run read-only query'}
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={selectedSuggestion}
+                onChange={(event) => {
+                  const nextQuery = event.target.value;
+                  setSelectedSuggestion(nextQuery);
+                  if (!nextQuery) return;
+                  props.onSqlChange(nextQuery);
+                  setSelectedSuggestion('');
+                }}
+                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+              >
+                <option value="">Suggested queries</option>
+                {SUGGESTED_QUERIES.map((item) => (
+                  <option key={item.label} value={item.query}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                onClick={props.onRun}
+                disabled={props.loading}
+                className="ui-btn ui-btn-primary flex items-center gap-2 px-5 py-2.5 disabled:opacity-50 dark:bg-gray-700 dark:hover:bg-gray-600"
+              >
+                {props.loading ? (
+                  <>
+                    <svg
+                      className="h-4 w-4 animate-spin"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                      aria-hidden="true"
+                    >
+                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeOpacity="0.25" strokeWidth="4" />
+                      <path d="M22 12a10 10 0 0 1-10 10" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+                    </svg>
+                    Running query…
+                  </>
+                ) : (
+                  'Run read-only query'
+                )}
+              </button>
+            </div>
           </div>
+          {props.executionMs !== null ? <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">Executed in {props.executionMs.toFixed(2)} ms</div> : null}
           {props.error ? <div className="ui-error mt-4">{props.error}</div> : null}
-        </div>
 
-        <div className="rounded-[24px] border border-white/25 bg-white/30 p-4 backdrop-blur-xl dark:bg-white/5">
-          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">Query result</div>
-          <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">Run a read-only query to inspect live application data.</div>
+          <div className="mt-4 rounded-[24px] border border-white/25 bg-white/30 p-4 backdrop-blur-xl dark:bg-white/5">
+            <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">Query result</div>
+            <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">Run a read-only query to inspect live application data.</div>
 
-          {props.result ? (
-            <>
-              <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
-                <span>Rows: <span className="ui-system">{props.result.rowCount}</span></span>
-                <span>Columns: <span className="ui-system">{props.result.columns.length}</span></span>
-                {props.result.limited ? <span className="ui-badge ui-system">Limited</span> : null}
-              </div>
+            {props.result ? (
+              <>
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+                    <span>Rows: <span className="ui-system">{props.result.rowCount}</span></span>
+                    <span>Columns: <span className="ui-system">{props.result.columns.length}</span></span>
+                    {props.result.limited ? <span className="ui-badge ui-system">Limited</span> : null}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={props.onCopyCsv}
+                    disabled={props.result.columns.length === 0}
+                    className="rounded-lg border border-gray-200 bg-gray-100 px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+                  >
+                    Copy results as CSV
+                  </button>
+                </div>
+                {props.copyState !== 'idle' ? (
+                  <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    {props.copyState === 'copied' ? 'Results copied to clipboard.' : 'Failed to copy results.'}
+                  </div>
+                ) : null}
 
-              <div className="mt-4 max-h-80 overflow-auto rounded-[18px] border border-white/20 bg-black/[0.04] dark:bg-white/[0.03]">
-                {props.result.columns.length > 0 ? (
-                  <table className="min-w-full text-left text-xs">
-                    <thead className="sticky top-0 bg-white/80 backdrop-blur-xl dark:bg-slate-900/80">
-                      <tr>
-                        {props.result.columns.map((column) => (
-                          <th key={column} className="border-b border-white/20 px-3 py-2 font-semibold text-gray-600 dark:text-gray-300">
-                            {column}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {props.result.rows.map((row, rowIndex) => (
-                        <tr key={rowIndex} className="border-b border-white/10 last:border-b-0">
-                          {row.map((cell, cellIndex) => (
-                            <td key={`${rowIndex}-${cellIndex}`} className="px-3 py-2 align-top text-gray-700 dark:text-gray-200">
-                              {cell === null ? <span className="text-gray-400 dark:text-gray-500">null</span> : String(cell)}
-                            </td>
+                <div className="mt-4 max-h-80 overflow-x-auto overflow-y-auto rounded-[18px] border border-white/20 bg-black/[0.04] dark:border-gray-700 dark:bg-white/[0.03]">
+                  {props.result.columns.length > 0 ? (
+                    <table className="min-w-full text-left text-xs">
+                      <thead className="sticky top-0 bg-white/80 backdrop-blur-xl dark:bg-gray-800">
+                        <tr>
+                          {props.result.columns.map((column) => (
+                            <th key={column} className="border-b border-white/20 px-3 py-2 font-semibold text-gray-600 dark:text-gray-300">
+                              {column}
+                            </th>
                           ))}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : (
-                  <div className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">Query returned no columns.</div>
-                )}
+                      </thead>
+                      <tbody>
+                        {props.result.rows.map((row, rowIndex) => {
+                          return (
+                            <tr key={rowIndex} className="border-b border-white/10 dark:border-gray-700 last:border-b-0">
+                              {row.map((cell, cellIndex) => {
+                                const displayValue = formatCellForDisplay(cell);
+                                return (
+                                  <td key={`${rowIndex}-${cellIndex}`} className="px-3 py-2 align-top text-gray-700 dark:text-gray-200">
+                                    <div className="max-w-[300px] truncate" title={displayValue}>
+                                      {displayValue}
+                                    </div>
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <div className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">Query returned no columns.</div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="mt-6 rounded-[18px] border border-dashed border-white/25 px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                No query has been run yet.
               </div>
-            </>
-          ) : (
-            <div className="mt-6 rounded-[18px] border border-dashed border-white/25 px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
-              No query has been run yet.
+            )}
+          </div>
+        </div>
+
+        <div className="min-w-0 lg:w-1/3">
+          <div className="rounded-xl border border-white/25 bg-white/35 p-3 backdrop-blur-xl dark:border-gray-700 dark:bg-white/5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500 dark:text-gray-400">History</div>
+              {props.history.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={props.onClearHistory}
+                  className="rounded-lg border border-gray-200 bg-gray-100 px-2 py-1 text-xs text-gray-600 transition hover:bg-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                >
+                  Clear
+                </button>
+              ) : null}
             </div>
-          )}
+
+            {props.history.length > 0 ? (
+              <ul className="mt-3 max-h-96 space-y-2 overflow-y-auto pr-1">
+                {props.history.map((query, index) => (
+                  <li key={`${query}-${index}`}>
+                    <button
+                      type="button"
+                      onClick={() => props.onPickHistory(query)}
+                      className="w-full truncate rounded-lg border border-gray-200 bg-white px-3 py-2 text-left font-mono text-[11px] text-gray-700 transition hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+                      title={query}
+                    >
+                      {query}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="mt-3 rounded-lg border border-dashed border-gray-300 px-3 py-4 text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                No successful query history yet.
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -337,6 +614,9 @@ export function AdminPage({ currentUser }: Props) {
   const [sqlLoading, setSqlLoading] = useState(false);
   const [sqlError, setSqlError] = useState<string | null>(null);
   const [sqlResult, setSqlResult] = useState<AdminSqlResult | null>(null);
+  const [sqlExecutionMs, setSqlExecutionMs] = useState<number | null>(null);
+  const [sqlHistory, setSqlHistory] = useState<string[]>([]);
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
 
   const isAdmin = Boolean(currentUser && (currentUser.role as Role) === 'admin');
 
@@ -358,6 +638,26 @@ export function AdminPage({ currentUser }: Props) {
 
     void run();
   }, [days, isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    try {
+      const raw = localStorage.getItem(SQL_HISTORY_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) return;
+      const cleaned = parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).slice(0, SQL_HISTORY_LIMIT);
+      setSqlHistory(cleaned);
+    } catch {
+      // Ignore malformed localStorage payloads.
+    }
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (copyState === 'idle') return;
+    const timer = window.setTimeout(() => setCopyState('idle'), 2200);
+    return () => window.clearTimeout(timer);
+  }, [copyState]);
 
   const seriesNewUsers = useMemo(() => (data ? data.users.series.map((point) => ({ day: point.day, value: point.newUsers })) : []), [data]);
   const seriesActiveUsers = useMemo(() => (data ? data.users.series.map((point) => ({ day: point.day, value: point.activeUsers })) : []), [data]);
@@ -389,14 +689,56 @@ export function AdminPage({ currentUser }: Props) {
     ];
   }, [data, seriesActiveUsers]);
 
+  const clearSqlHistory = () => {
+    setSqlHistory([]);
+    try {
+      localStorage.removeItem(SQL_HISTORY_KEY);
+    } catch {
+      // Ignore localStorage write failures.
+    }
+  };
+
+  const copySqlResultAsCsv = async () => {
+    if (!sqlResult || sqlResult.columns.length === 0) return;
+    try {
+      await navigator.clipboard.writeText(buildCsvFromResult(sqlResult));
+      setCopyState('copied');
+    } catch {
+      setCopyState('failed');
+    }
+  };
+
   const runSql = async () => {
+    const query = sql.trim();
+    if (!query) {
+      setSqlError('Query cannot be empty');
+      setSqlResult(null);
+      setSqlExecutionMs(null);
+      return;
+    }
+
+    const startedAt = performance.now();
     setSqlLoading(true);
     setSqlError(null);
+    setCopyState('idle');
+    setSqlExecutionMs(null);
     try {
-      const result = await adminApi.runSql({ query: sql });
+      const result = await adminApi.runSql({ query });
       setSqlResult(result);
+      const backendExecution = typeof result.executionMs === 'number' && Number.isFinite(result.executionMs) ? result.executionMs : null;
+      setSqlExecutionMs(backendExecution ?? performance.now() - startedAt);
+      setSqlHistory((previous) => {
+        const next = [query, ...previous.filter((item) => item !== query)].slice(0, SQL_HISTORY_LIMIT);
+        try {
+          localStorage.setItem(SQL_HISTORY_KEY, JSON.stringify(next));
+        } catch {
+          // Ignore localStorage write failures.
+        }
+        return next;
+      });
     } catch (err) {
       setSqlResult(null);
+      setSqlExecutionMs(null);
       setSqlError(err instanceof Error ? err.message : 'Query failed');
     } finally {
       setSqlLoading(false);
@@ -619,6 +961,12 @@ export function AdminPage({ currentUser }: Props) {
               loading={sqlLoading}
               error={sqlError}
               result={sqlResult}
+              history={sqlHistory}
+              onPickHistory={setSql}
+              onClearHistory={clearSqlHistory}
+              executionMs={sqlExecutionMs}
+              onCopyCsv={() => void copySqlResultAsCsv()}
+              copyState={copyState}
             />
           </section>
         </>

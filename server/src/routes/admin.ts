@@ -443,8 +443,10 @@ adminRouter.post('/sql', async (req, res) => {
 
   const roDb = await getReadOnlyDb();
   const limited = enforceLimit(query, 200);
+  const startedAt = performance.now();
 
   const rows = await roDb.all<Record<string, unknown>[]>(limited);
+  const executionMs = performance.now() - startedAt;
   const columns = rows.length > 0 ? Object.keys(rows[0]!) : [];
   const values = rows.map((r) => columns.map((c) => r[c]));
 
@@ -453,5 +455,6 @@ adminRouter.post('/sql', async (req, res) => {
     rows: values,
     rowCount: rows.length,
     limited: limited !== query.trim().replace(/;\s*$/, ''),
+    executionMs,
   });
 });

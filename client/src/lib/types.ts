@@ -128,6 +128,7 @@ export type AdminSqlResult = {
   rows: Array<Array<unknown>>;
   rowCount: number;
   limited: boolean;
+  executionMs?: number;
 };
 
 export type SearchUser = {

@@ -87,9 +87,9 @@ export function NotificationsPage(props: {
     await markRead(n.id);
   };
 
-  const userIdForFriendRequest = (n: NotificationItem): number | null => {
-    if (n.entity?.type === 'user' && typeof n.entity.id === 'number') return n.entity.id;
-    if (n.actorUser && typeof n.actorUser.id === 'number') return n.actorUser.id;
+  const userIdForFriendRequest = (n: NotificationItem): string | null => {
+    if (n.entity?.type === 'user' && typeof n.entity.id === 'string') return n.entity.id;
+    if (n.actorUser && typeof n.actorUser.id === 'string') return n.actorUser.id;
     return null;
   };
 

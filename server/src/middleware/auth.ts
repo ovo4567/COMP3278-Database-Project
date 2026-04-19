@@ -13,9 +13,9 @@ const authenticateAccessToken = async (
 > => {
   try {
     const claims = verifyAccessToken(token);
-    const userId = Number(claims.sub);
+    const username = String(claims.sub ?? '').toLowerCase();
 
-    if (!Number.isFinite(userId)) {
+    if (!username) {
       return { ok: false, status: 401, error: 'Invalid or expired token' };
     }
 
@@ -24,7 +24,7 @@ const authenticateAccessToken = async (
       username: string;
       role: 'user' | 'admin';
       is_banned: 0 | 1;
-    }>('SELECT username, role, is_banned FROM users WHERE id = ?', userId);
+    }>('SELECT username, role, is_banned FROM users WHERE username = ?', username);
 
     if (!row) {
       return { ok: false, status: 401, error: 'Invalid or expired token' };
@@ -37,7 +37,7 @@ const authenticateAccessToken = async (
     return {
       ok: true,
       claims: {
-        sub: String(userId),
+        sub: row.username,
         username: row.username,
         role: row.role,
       },

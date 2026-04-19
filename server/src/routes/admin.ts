@@ -5,6 +5,8 @@ import { getDb, getReadOnlyDb } from '../db/sqlite.js';
 
 export const adminRouter = Router();
 
+const postEngagementJoin = 'LEFT JOIN post_engagement pe ON pe.post_id = p.id';
+
 adminRouter.use(requireAuth);
 adminRouter.use(requireAdmin);
 
@@ -12,56 +14,56 @@ const userBanSchema = z.object({
   isBanned: z.boolean(),
 });
 
-adminRouter.get('/users/:id', async (req, res) => {
-  const targetUserId = Number(req.params.id);
-  if (!Number.isFinite(targetUserId)) return res.status(400).json({ error: 'Invalid user id' });
+adminRouter.get('/users/:username', async (req, res) => {
+  const targetUsername = String(req.params.username ?? '').toLowerCase();
+  if (!targetUsername) return res.status(400).json({ error: 'Invalid username' });
 
   const db = await getDb();
-  const user = await db.get<{ id: number; username: string; role: 'user' | 'admin'; is_banned: 0 | 1 }>(
-    'SELECT id, username, role, is_banned FROM users WHERE id = ?',
-    targetUserId,
+  const user = await db.get<{ username: string; role: 'user' | 'admin'; is_banned: 0 | 1 }>(
+    'SELECT username, role, is_banned FROM users WHERE username = ?',
+    targetUsername,
   );
 
   if (!user) return res.status(404).json({ error: 'User not found' });
 
   return res.json({
-    id: user.id,
+    id: user.username,
     username: user.username,
     role: user.role,
     isBanned: Boolean(user.is_banned),
   });
 });
 
-adminRouter.patch('/users/:id', async (req, res) => {
-  const targetUserId = Number(req.params.id);
-  if (!Number.isFinite(targetUserId)) return res.status(400).json({ error: 'Invalid user id' });
+adminRouter.patch('/users/:username', async (req, res) => {
+  const targetUsername = String(req.params.username ?? '').toLowerCase();
+  if (!targetUsername) return res.status(400).json({ error: 'Invalid username' });
 
   const parsed = userBanSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
 
-  const actorId = Number((req as unknown as AuthedRequest).user.sub);
-  if (actorId === targetUserId) return res.status(400).json({ error: 'Cannot ban/unban self' });
+  const actorUsername = String((req as unknown as AuthedRequest).user.sub).toLowerCase();
+  if (actorUsername === targetUsername) return res.status(400).json({ error: 'Cannot ban/unban self' });
 
   const db = await getDb();
-  const existing = await db.get<{ id: number }>('SELECT id FROM users WHERE id = ?', targetUserId);
+  const existing = await db.get<{ username: string }>('SELECT username FROM users WHERE username = ?', targetUsername);
   if (!existing) return res.status(404).json({ error: 'User not found' });
 
-  await db.run('UPDATE users SET is_banned = ? WHERE id = ?', parsed.data.isBanned ? 1 : 0, targetUserId);
+  await db.run('UPDATE users SET is_banned = ? WHERE username = ?', parsed.data.isBanned ? 1 : 0, targetUsername);
   return res.json({ ok: true });
 });
 
-adminRouter.delete('/users/:id', async (req, res) => {
-  const targetUserId = Number(req.params.id);
-  if (!Number.isFinite(targetUserId)) return res.status(400).json({ error: 'Invalid user id' });
+adminRouter.delete('/users/:username', async (req, res) => {
+  const targetUsername = String(req.params.username ?? '').toLowerCase();
+  if (!targetUsername) return res.status(400).json({ error: 'Invalid username' });
 
-  const actorId = Number((req as unknown as AuthedRequest).user.sub);
-  if (actorId === targetUserId) return res.status(400).json({ error: 'Cannot delete self' });
+  const actorUsername = String((req as unknown as AuthedRequest).user.sub).toLowerCase();
+  if (actorUsername === targetUsername) return res.status(400).json({ error: 'Cannot delete self' });
 
   const db = await getDb();
-  const existing = await db.get<{ id: number }>('SELECT id FROM users WHERE id = ?', targetUserId);
+  const existing = await db.get<{ username: string }>('SELECT username FROM users WHERE username = ?', targetUsername);
   if (!existing) return res.status(404).json({ error: 'User not found' });
 
-  await db.run('DELETE FROM users WHERE id = ?', targetUserId);
+  await db.run('DELETE FROM users WHERE username = ?', targetUsername);
   return res.json({ ok: true });
 });
 
@@ -225,16 +227,16 @@ adminRouter.get('/analytics', async (req, res) => {
     : [];
 
   const topUsersByFriends = hasFriendships
-    ? await db.all<{ id: number; username: string; display_name: string | null; friends: number }[]>(
+    ? await db.all<{ id: string; username: string; display_name: string | null; friends: number }[]>(
         `WITH edges AS (
            SELECT user_id1 AS user_id FROM friendships WHERE status = 'accepted'
            UNION ALL
            SELECT user_id2 AS user_id FROM friendships WHERE status = 'accepted'
          )
-         SELECT u.id, u.username, u.display_name, COUNT(*) AS friends
+         SELECT u.username AS id, u.username, u.display_name, COUNT(*) AS friends
          FROM edges e
-         JOIN users u ON u.id = e.user_id
-         GROUP BY u.id
+         JOIN users u ON u.username = e.user_id
+         GROUP BY u.username
          ORDER BY friends DESC
          LIMIT 10`,
       )
@@ -245,35 +247,35 @@ adminRouter.get('/analytics', async (req, res) => {
   const avgFriendsPerUser = totalUsers > 0 ? (totalFriendshipsAccepted * 2) / totalUsers : 0;
 
   const topUsersByPosts = await db.all<
-    { id: number; username: string; display_name: string | null; posts: number }[]
+    { id: string; username: string; display_name: string | null; posts: number }[]
   >(
-    `SELECT u.id, u.username, u.display_name, COUNT(*) AS posts
+    `SELECT u.username AS id, u.username, u.display_name, COUNT(*) AS posts
      FROM posts p
-     JOIN users u ON u.id = p.user_id
-     GROUP BY u.id
+     JOIN users u ON u.username = p.user_id
+     GROUP BY u.username
      ORDER BY posts DESC
      LIMIT 10`,
   );
 
   const topUsersByLikesReceived = await db.all<
-    { id: number; username: string; display_name: string | null; likes_received: number }[]
+    { id: string; username: string; display_name: string | null; likes_received: number }[]
   >(
-    `SELECT u.id, u.username, u.display_name, COUNT(*) AS likes_received
+    `SELECT u.username AS id, u.username, u.display_name, COUNT(*) AS likes_received
      FROM likes l
      JOIN posts p ON p.id = l.post_id
-     JOIN users u ON u.id = p.user_id
-     GROUP BY u.id
+     JOIN users u ON u.username = p.user_id
+     GROUP BY u.username
      ORDER BY likes_received DESC
      LIMIT 10`,
   );
 
   const topUsersByCommentsMade = await db.all<
-    { id: number; username: string; display_name: string | null; comments_made: number }[]
+    { id: string; username: string; display_name: string | null; comments_made: number }[]
   >(
-    `SELECT u.id, u.username, u.display_name, COUNT(*) AS comments_made
+    `SELECT u.username AS id, u.username, u.display_name, COUNT(*) AS comments_made
      FROM comments c
-     JOIN users u ON u.id = c.user_id
-     GROUP BY u.id
+     JOIN users u ON u.username = c.user_id
+     GROUP BY u.username
      ORDER BY comments_made DESC
      LIMIT 10`,
   );
@@ -281,10 +283,11 @@ adminRouter.get('/analytics', async (req, res) => {
   const mostLikedPosts = await db.all<
     { id: number; text: string; like_count: number; created_at: string; username: string }[]
   >(
-    `SELECT p.id, p.text, p.like_count, p.created_at, u.username
+    `SELECT p.id, p.text, COALESCE(pe.like_count, 0) AS like_count, p.created_at, u.username
      FROM posts p
-     JOIN users u ON u.id = p.user_id
-     ORDER BY p.like_count DESC, p.created_at DESC
+     ${postEngagementJoin}
+     JOIN users u ON u.username = p.user_id
+     ORDER BY like_count DESC, p.created_at DESC
      LIMIT 10`,
   );
 
@@ -293,7 +296,7 @@ adminRouter.get('/analytics', async (req, res) => {
   >(
     `SELECT p.id, p.text, COUNT(c.id) AS comment_count, p.created_at, u.username
      FROM posts p
-     JOIN users u ON u.id = p.user_id
+     JOIN users u ON u.username = p.user_id
      LEFT JOIN comments c ON c.post_id = p.id
      GROUP BY p.id
      ORDER BY comment_count DESC, p.created_at DESC
@@ -304,10 +307,10 @@ adminRouter.get('/analytics', async (req, res) => {
     { bucket: string; count: number }[]
   >(
     `WITH per_user AS (
-       SELECT u.id AS user_id, COALESCE(COUNT(p.id), 0) AS post_count
+       SELECT u.username AS user_id, COALESCE(COUNT(p.id), 0) AS post_count
        FROM users u
-       LEFT JOIN posts p ON p.user_id = u.id
-       GROUP BY u.id
+       LEFT JOIN posts p ON p.user_id = u.username
+       GROUP BY u.username
      )
      SELECT
        CASE
@@ -335,7 +338,7 @@ adminRouter.get('/analytics', async (req, res) => {
   const likeToPostRatio = totalPosts > 0 ? totalLikes / totalPosts : 0;
   const commentToPostRatio = totalPosts > 0 ? totalComments / totalPosts : 0;
 
-  const adminUserId = Number((req as AuthedRequest).user.sub);
+  const adminUserId = String((req as AuthedRequest).user.sub).toLowerCase();
 
   return res.json({
     generatedAt: new Date().toISOString(),

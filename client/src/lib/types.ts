@@ -25,7 +25,7 @@ export type AuthorMeta = {
 };
 
 export type User = {
-  id: number;
+  id: string;
   username: string;
   role: Role;
   displayName: string | null;
@@ -38,7 +38,7 @@ export type UserProfile = User & {
   createdAt: string;
   stats?: { postCount: number; likesReceived: number };
   friendCount?: number;
-  friendship?: { status: 'pending' | 'accepted' | 'rejected'; actionUserId: number | null } | null;
+  friendship?: { status: 'pending' | 'accepted' | 'rejected'; actionUserId: string | null } | null;
 };
 
 export type FeedPost = {
@@ -120,7 +120,7 @@ export type AdminSqlResult = {
 };
 
 export type SearchUser = {
-  id: number;
+  id: string;
   username: string;
   displayName: string | null;
   avatarUrl: string | null;
@@ -134,7 +134,7 @@ export type SearchResults = {
 };
 
 export type FriendUser = {
-  id: number;
+  id: string;
   username: string;
   displayName: string | null;
   avatarUrl: string | null;
@@ -151,8 +151,8 @@ export type NotificationItem = {
   type: string;
   createdAt: string;
   isRead: boolean;
-  actorUser?: { id: number; username: string; displayName: string | null; avatarUrl: string | null } | null;
-  entity?: { type: string; id: number } | null;
+  actorUser?: { id: string; username: string; displayName: string | null; avatarUrl: string | null } | null;
+  entity?: { type: string; id: string | number } | null;
 };
 
 export type NotifyEvent =
@@ -163,14 +163,9 @@ export type NotifyEvent =
 
 export type Comment = {
   id: number;
-  parentCommentId: number | null;
   text: string;
   createdAt: string;
   authorMeta: AuthorMeta;
-  parentUser?: {
-    username: string;
-    displayName: string | null;
-  } | null;
   user: {
     username: string;
     displayName: string | null;
@@ -182,5 +177,5 @@ export type RealtimeEvent =
   | { type: 'post_created'; postId: number }
   | { type: 'post_updated'; postId: number }
   | { type: 'post_deleted'; postId: number }
-  | { type: 'post_liked'; postId: number; likeCount: number; userId?: number; liked?: boolean }
+  | { type: 'post_liked'; postId: number; likeCount: number; userId?: string; liked?: boolean }
   | { type: 'comment_created'; postId: number; commentId: number };

@@ -31,12 +31,12 @@ authRouter.post('/signup', async (req, res) => {
   const username = normalizeUsername(rawUsername);
   const db = await getDb();
 
-  const existing = await db.get('SELECT id FROM users WHERE lower(username) = lower(?)', username);
+  const existing = await db.get('SELECT username FROM users WHERE username = ?', username);
   if (existing) return res.status(409).json({ error: 'Username already taken' });
 
   const passwordHash = await hashPassword(password);
 
-  const result = await db.run(
+  await db.run(
     'INSERT INTO users(username, password_hash, role, display_name, status_text, bio, avatar_url) VALUES (?, ?, ?, ?, ?, ?, ?)',
     username,
     passwordHash,
@@ -47,14 +47,13 @@ authRouter.post('/signup', async (req, res) => {
     avatarUrl ?? null,
   );
 
-  const userId = result.lastID as number;
   const role = 'user' as const;
-  const accessToken = signAccessToken({ sub: String(userId), username, role });
+  const accessToken = signAccessToken({ sub: username, username, role });
 
   return res.json({
     accessToken,
     user: {
-      id: userId,
+      id: username,
       username,
       role,
       displayName: displayName ?? null,
@@ -73,7 +72,6 @@ authRouter.post('/login', async (req, res) => {
   const username = normalizeUsername(rawUsername);
   const db = await getDb();
   const user = await db.get<{
-    id: number;
     username: string;
     password_hash: string;
     role: 'user' | 'admin';
@@ -83,7 +81,7 @@ authRouter.post('/login', async (req, res) => {
     avatar_url: string | null;
     is_banned: 0 | 1;
   }>(
-    'SELECT id, username, password_hash, role, display_name, status_text, bio, avatar_url, is_banned FROM users WHERE lower(username) = lower(?)',
+    'SELECT username, password_hash, role, display_name, status_text, bio, avatar_url, is_banned FROM users WHERE username = ?',
     username,
   );
 
@@ -92,12 +90,12 @@ authRouter.post('/login', async (req, res) => {
   const ok = await verifyPassword(password, user.password_hash);
   if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
 
-  const accessToken = signAccessToken({ sub: String(user.id), username: user.username, role: user.role });
+  const accessToken = signAccessToken({ sub: user.username, username: user.username, role: user.role });
 
   return res.json({
     accessToken,
     user: {
-      id: user.id,
+      id: user.username,
       username: user.username,
       role: user.role,
       displayName: user.display_name,

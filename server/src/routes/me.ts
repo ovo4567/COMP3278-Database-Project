@@ -14,10 +14,9 @@ const updateMeSchema = z.object({
 });
 
 meRouter.get('/', requireAuth, async (req, res) => {
-  const userId = Number((req as AuthedRequest).user.sub);
+  const username = String((req as AuthedRequest).user.sub).toLowerCase();
   const db = await getDb();
   const user = await db.get<{
-    id: number;
     username: string;
     role: 'user' | 'admin';
     display_name: string | null;
@@ -26,13 +25,13 @@ meRouter.get('/', requireAuth, async (req, res) => {
     avatar_url: string | null;
     created_at: string;
   }>(
-    'SELECT id, username, role, display_name, status_text, bio, avatar_url, created_at FROM users WHERE id = ?',
-    userId,
+    'SELECT username, role, display_name, status_text, bio, avatar_url, created_at FROM users WHERE username = ?',
+    username,
   );
   if (!user) return res.status(404).json({ error: 'Not found' });
 
   return res.json({
-    id: user.id,
+    id: user.username,
     username: user.username,
     role: user.role,
     displayName: user.display_name,
@@ -51,7 +50,7 @@ meRouter.patch('/', requireAuth, async (req, res) => {
   const parsed = updateMeSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
 
-  const userId = Number((req as AuthedRequest).user.sub);
+  const username = String((req as AuthedRequest).user.sub).toLowerCase();
   const db = await getDb();
 
   const { displayName, status, bio, avatarUrl } = parsed.data;
@@ -91,14 +90,13 @@ meRouter.patch('/', requireAuth, async (req, res) => {
     await db.run(
       `UPDATE users
        SET ${updates.join(', ')}
-       WHERE id = ?`,
+       WHERE username = ?`,
       ...params,
-      userId,
+      username,
     );
   }
 
   const user = await db.get<{
-    id: number;
     username: string;
     role: 'user' | 'admin';
     display_name: string | null;
@@ -107,14 +105,14 @@ meRouter.patch('/', requireAuth, async (req, res) => {
     avatar_url: string | null;
     created_at: string;
   }>(
-    'SELECT id, username, role, display_name, status_text, bio, avatar_url, created_at FROM users WHERE id = ?',
-    userId,
+    'SELECT username, role, display_name, status_text, bio, avatar_url, created_at FROM users WHERE username = ?',
+    username,
   );
 
   if (!user) return res.status(404).json({ error: 'Not found' });
 
   return res.json({
-    id: user.id,
+    id: user.username,
     username: user.username,
     role: user.role,
     displayName: user.display_name,
@@ -126,8 +124,8 @@ meRouter.patch('/', requireAuth, async (req, res) => {
 });
 
 meRouter.delete('/', requireAuth, async (req, res) => {
-  const userId = Number((req as AuthedRequest).user.sub);
+  const username = String((req as AuthedRequest).user.sub).toLowerCase();
   const db = await getDb();
-  await db.run('DELETE FROM users WHERE id = ?', userId);
+  await db.run('DELETE FROM users WHERE username = ?', username);
   return res.json({ ok: true });
 });

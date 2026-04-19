@@ -10,7 +10,6 @@
  *   npm -w server run seed:test -- --force
  */
 
-import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { runMigrations } from '../src/db/migrate.js';
 import { getDb } from '../src/db/sqlite.js';
@@ -32,14 +31,14 @@ type SeedUserInput = {
 };
 
 type SeededUser = {
-  id: number;
+  id: string;
   username: string;
   role: 'user' | 'admin';
 };
 
 type SeededPost = {
   id: number;
-  userId: number;
+  userId: string;
   createdAt: Date;
   status: 'draft' | 'scheduled' | 'published';
   category: PostCategory;
@@ -48,7 +47,7 @@ type SeededPost = {
 type SeededComment = {
   id: number;
   postId: number;
-  userId: number;
+  userId: string;
   createdAt: Date;
 };
 
@@ -356,7 +355,7 @@ const buildPostText = (category: PostCategory, userIndex: number, sequence: numb
   return `${subject}: ${action} ${detail} ${closer}`;
 };
 
-const normalizePair = (a: number, b: number) => (a < b ? { user1: a, user2: b } : { user1: b, user2: a });
+const normalizePair = (a: string, b: string) => (a < b ? { user1: a, user2: b } : { user1: b, user2: a });
 
 const seedIps = [
   '127.0.0.1',
@@ -382,10 +381,30 @@ const networkForUserIndex = (userIndex: number) => {
   };
 };
 
-const resetDatabaseFile = async (force: boolean) => {
-  if (!force || config.sqlitePath === ':memory:') return;
+const resetDatabaseInPlace = async (force: boolean) => {
+  if (!force) return;
+
   console.log('Resetting database (force)...');
-  await rm(path.resolve(config.sqlitePath), { force: true });
+  const db = await getDb();
+  await db.exec('PRAGMA foreign_keys = OFF;');
+  try {
+    await db.exec(`
+      DROP VIEW IF EXISTS post_engagement;
+      DROP TABLE IF EXISTS notifications;
+      DROP TABLE IF EXISTS post_collections;
+      DROP TABLE IF EXISTS likes;
+      DROP TABLE IF EXISTS comments;
+      DROP TABLE IF EXISTS posts;
+      DROP TABLE IF EXISTS friendships;
+      DROP TABLE IF EXISTS users;
+      DROP TABLE IF EXISTS comment_likes;
+      DROP TABLE IF EXISTS comment_collections;
+      DROP TABLE IF EXISTS post_views;
+      DROP TABLE IF EXISTS sessions;
+    `);
+  } finally {
+    await db.exec('PRAGMA foreign_keys = ON;');
+  }
 };
 
 const seedAdmin = async (): Promise<SeededUser> => {
@@ -394,32 +413,32 @@ const seedAdmin = async (): Promise<SeededUser> => {
   const adminUsername = 'admin';
   const adminPassword = 'admin123';
 
-  const existing = await db.get<{ id: number; role: 'user' | 'admin' }>('SELECT id, role FROM users WHERE username = ?', adminUsername);
+  const existing = await db.get<{ username: string; role: 'user' | 'admin' }>('SELECT username, role FROM users WHERE username = ?', adminUsername);
   if (existing) {
     if (existing.role !== 'admin') {
-      await db.run("UPDATE users SET role = 'admin' WHERE id = ?", existing.id);
+      await db.run("UPDATE users SET role = 'admin' WHERE username = ?", existing.username);
     }
 
     // Ensure admin has profile fields filled.
     await db.run(
-      'UPDATE users SET display_name = COALESCE(display_name, ?), bio = COALESCE(bio, ?), status_text = COALESCE(status_text, ?) WHERE id = ?',
+      'UPDATE users SET display_name = COALESCE(display_name, ?), bio = COALESCE(bio, ?), status_text = COALESCE(status_text, ?) WHERE username = ?',
       'Admin',
       'Administrator account for testing the admin dashboard.',
       'Keeping an eye on things.',
-      existing.id,
+      existing.username,
     );
 
     // Demo seed should not rely on external image hosts.
-    await db.run('UPDATE users SET avatar_url = NULL WHERE id = ?', existing.id);
+    await db.run('UPDATE users SET avatar_url = NULL WHERE username = ?', existing.username);
 
     console.log(`Admin exists: @${adminUsername}`);
-    return { id: existing.id, username: adminUsername, role: 'admin' };
+    return { id: existing.username, username: adminUsername, role: 'admin' };
   }
 
   const passwordHash = await hashPassword(adminPassword);
   const createdAt = toSqliteDateTime(daysAgo(480, 3));
 
-  const result = await db.run(
+  await db.run(
     'INSERT INTO users(username, password_hash, role, display_name, bio, status_text, avatar_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     adminUsername,
     passwordHash,
@@ -431,11 +450,10 @@ const seedAdmin = async (): Promise<SeededUser> => {
     createdAt,
   );
 
-  const id = result.lastID as number;
-  await db.run('UPDATE users SET avatar_url = NULL WHERE id = ?', id);
+  await db.run('UPDATE users SET avatar_url = NULL WHERE username = ?', adminUsername);
 
   console.log(`Created admin: @${adminUsername} (password: ${adminPassword})`);
-  return { id, username: adminUsername, role: 'admin' };
+  return { id: adminUsername, username: adminUsername, role: 'admin' };
 };
 
 const seedRegularUsers = async (): Promise<SeededUser[]> => {
@@ -518,24 +536,24 @@ const seedRegularUsers = async (): Promise<SeededUser[]> => {
 
   for (let i = 0; i < base.length; i++) {
     const username = `seed_user${pad2(i + 1)}`;
-    const existing = await db.get<{ id: number }>('SELECT id FROM users WHERE username = ?', username);
+    const existing = await db.get<{ username: string }>('SELECT username FROM users WHERE username = ?', username);
     if (existing) {
       await db.run(
-        'UPDATE users SET display_name = ?, bio = ?, status_text = ?, avatar_url = ? WHERE id = ?',
+        'UPDATE users SET display_name = ?, bio = ?, status_text = ?, avatar_url = ? WHERE username = ?',
         base[i]!.displayName,
         base[i]!.bio,
         base[i]!.statusText,
         base[i]!.avatarUrl,
-        existing.id,
+        existing.username,
       );
-      out.push({ id: existing.id, username, role: 'user' });
+      out.push({ id: username, username, role: 'user' });
       continue;
     }
 
     const createdAt = toSqliteDateTime(daysAgo(320 - i * 11, i % 5, i * 4));
     const passwordHash = await hashPassword(base[i]!.password);
 
-    const result = await db.run(
+    await db.run(
       'INSERT INTO users(username, password_hash, role, display_name, bio, status_text, avatar_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       username,
       passwordHash,
@@ -547,8 +565,7 @@ const seedRegularUsers = async (): Promise<SeededUser[]> => {
       createdAt,
     );
 
-    const id = result.lastID as number;
-    out.push({ id, username, role: 'user' });
+    out.push({ id: username, username, role: 'user' });
   }
 
   return out;
@@ -590,10 +607,9 @@ const seedPosts = async (users: SeededUser[]): Promise<SeededPost[]> => {
       const result = await db.run(
         `INSERT INTO posts(
           user_id, text, image_url, visibility, category, status, scheduled_publish_at, published_at, draft_saved_at,
-          like_count, collect_count,
           author_ip, author_country, author_region, author_city,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, NULL)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
         u.id,
         text,
         imageUrl,
@@ -634,64 +650,50 @@ const seedComments = async (users: SeededUser[], posts: SeededPost[]): Promise<S
     const thirdCommenter = participants[(postIndex + 2) % participants.length]!;
     const opener = pickBySequence(commentOpenersByCategory[p.category].openers, postIndex, Math.max(ownerIndex, 0), 3);
     const support = fillTemplate(
-      pickBySequence(commentSupportLines, postIndex + owner.id, firstCommenter.id, 5),
+      pickBySequence(commentSupportLines, postIndex + ownerIndex, postIndex + 1, 5),
       { owner: owner.username },
     );
     const ownerReply = fillTemplate(
-      pickBySequence(commentOwnerReplies, postIndex + firstCommenter.id, secondCommenter.id, 7),
+      pickBySequence(commentOwnerReplies, postIndex + participants.indexOf(firstCommenter), postIndex + 2, 7),
       { first: firstCommenter.username },
     );
     const followUp = fillTemplate(
-      pickBySequence(commentFollowUps, postIndex + secondCommenter.id, thirdCommenter.id, 11),
+      pickBySequence(commentFollowUps, postIndex + participants.indexOf(secondCommenter), postIndex + 3, 11),
       { second: secondCommenter.username },
     ) + ` [thread ${pad2(postIndex + 1)}]`;
 
     const commentPlan = [
       {
         commenter: firstCommenter,
-        parentCommentId: null,
         text: opener,
       },
       {
         commenter: secondCommenter,
-        parentCommentId: null,
         text: support,
       },
       {
         commenter: owner,
-        parentCommentId: 'first',
         text: ownerReply,
       },
       {
         commenter: thirdCommenter,
-        parentCommentId: 'second',
         text: followUp,
       },
     ] as const;
-
-    let firstCommentId: number | null = null;
-    let secondCommentId: number | null = null;
 
     for (let i = 0; i < commentPlan.length; i++) {
       const plan = commentPlan[i]!;
       const createdAt = new Date(p.createdAt.getTime() + (i + 1) * 35 * 60 * 1000);
       const commenterIndex = users.findIndex((u) => u.id === plan.commenter.id);
       const network = networkForUserIndex(Math.max(commenterIndex, 0));
-      const parentCommentId =
-        plan.parentCommentId === 'first'
-          ? firstCommentId
-          : plan.parentCommentId === 'second'
-            ? secondCommentId
-            : null;
 
       const result = await db.run(
         `INSERT INTO comments(
-          post_id, user_id, parent_comment_id, text,
+          post_id, user_id, text,
           author_ip, author_country, author_region, author_city, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         p.id,
         plan.commenter.id,
-        parentCommentId,
         plan.text,
         network.ip,
         network.country,
@@ -702,9 +704,6 @@ const seedComments = async (users: SeededUser[], posts: SeededPost[]): Promise<S
 
       const commentId = result.lastID as number;
       comments.push({ id: commentId, postId: p.id, userId: plan.commenter.id, createdAt });
-
-      if (i === 0) firstCommentId = commentId;
-      if (i === 1) secondCommentId = commentId;
     }
   }
 
@@ -730,8 +729,6 @@ const seedLikes = async (users: SeededUser[], posts: SeededPost[]) => {
       );
     }
   }
-
-  await db.run('UPDATE posts SET like_count = (SELECT COUNT(*) FROM likes l WHERE l.post_id = posts.id)');
 };
 
 const seedPostCollections = async (users: SeededUser[], posts: SeededPost[]) => {
@@ -752,8 +749,6 @@ const seedPostCollections = async (users: SeededUser[], posts: SeededPost[]) => 
       );
     }
   }
-
-  await db.run('UPDATE posts SET collect_count = (SELECT COUNT(*) FROM post_collections pc WHERE pc.post_id = posts.id)');
 };
 
 const seedFriendships = async (users: SeededUser[]) => {
@@ -843,7 +838,7 @@ const seedFriendships = async (users: SeededUser[]) => {
 const main = async () => {
   const { force } = parseArgs(process.argv.slice(2));
 
-  await resetDatabaseFile(force);
+  await resetDatabaseInPlace(force);
 
   console.log('Initializing schema...');
   await runMigrations();
@@ -856,7 +851,7 @@ const main = async () => {
   }
 
   console.log('Creating users...');
-  const admin = await seedAdmin();
+  await seedAdmin();
   const regularUsers = await seedRegularUsers();
 
   console.log('Creating friendships...');

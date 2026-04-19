@@ -7,7 +7,7 @@ export type RealtimeEvent =
   | { type: 'post_created'; postId: number }
   | { type: 'post_updated'; postId: number }
   | { type: 'post_deleted'; postId: number }
-  | { type: 'post_liked'; postId: number; likeCount: number; userId: number; liked: boolean }
+  | { type: 'post_liked'; postId: number; likeCount: number; userId: string; liked: boolean }
   | { type: 'comment_created'; postId: number; commentId: number };
 
 export type UserEvent =
@@ -18,28 +18,28 @@ export type UserEvent =
         type: string;
         createdAt: string;
         isRead: boolean;
-        actorUser?: { id: number; username: string; displayName: string | null; avatarUrl: string | null } | null;
-        entity?: { type: string; id: number } | null;
+        actorUser?: { id: string; username: string; displayName: string | null; avatarUrl: string | null } | null;
+        entity?: { type: string; id: string | number } | null;
       };
     };
 
 let io: Server | null = null;
 
-type SocketUser = AccessTokenClaims & { id: number };
+      type SocketUser = AccessTokenClaims & { username: string };
 
 const tryGetSocketUser = (token: unknown): SocketUser | null => {
   if (typeof token !== 'string' || !token) return null;
   try {
     const claims = verifyAccessToken(token);
-    const id = Number(claims.sub);
-    if (!Number.isFinite(id)) return null;
-    return { ...claims, id };
+    const username = String(claims.sub ?? '').toLowerCase();
+    if (!username) return null;
+    return { ...claims, username };
   } catch {
     return null;
   }
 };
 
-const roomForUser = (userId: number) => `user:${userId}`;
+const roomForUser = (username: string) => `user:${username}`;
 
 export const initRealtime = (httpServer: HttpServer) => {
   io = new Server(httpServer, {
@@ -53,7 +53,7 @@ export const initRealtime = (httpServer: HttpServer) => {
     const user = tryGetSocketUser((socket.handshake.auth as { token?: unknown } | undefined)?.token);
 
     if (user) {
-      void socket.join(roomForUser(user.id));
+      void socket.join(roomForUser(user.username));
     }
 
     socket.on('disconnect', () => {});
@@ -67,7 +67,7 @@ export const emitEvent = (event: RealtimeEvent) => {
   io.emit('event', event);
 };
 
-export const emitToUserRoom = (userId: number, event: UserEvent) => {
+export const emitToUserRoom = (userId: string, event: UserEvent) => {
   if (!io) return;
   io.to(roomForUser(userId)).emit('notify:event', event);
 };

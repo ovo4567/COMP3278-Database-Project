@@ -2,7 +2,7 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
 
 export type AccessTokenClaims = {
-  sub: string; // user id
+  sub: string; // username
   username: string;
   role: 'user' | 'admin';
 };

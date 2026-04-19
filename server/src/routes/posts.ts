@@ -16,6 +16,7 @@ const postImageInputSchema = buildImageInputSchema(1_500_000, 'Post image');
 
 type PostRow = {
   id: number;
+  user_id: string;
   text: string;
   image_url: string | null;
   category: PostCategory;
@@ -64,6 +65,15 @@ const analyticsQuerySchema = z.object({
 });
 
 const feedCursorSeparator = '::';
+const postEngagementJoin = 'LEFT JOIN post_engagement pe ON pe.post_id = p.id';
+const postBaseColumns = `
+       p.id, p.text, p.image_url, p.category, p.visibility, p.status,
+       p.scheduled_publish_at, p.published_at,
+       COALESCE(pe.like_count, 0) AS like_count,
+       COALESCE(pe.collect_count, 0) AS collect_count,
+       p.created_at, p.updated_at, p.author_ip, p.author_country, p.author_region, p.author_city,
+       u.username, u.display_name, u.avatar_url`;
+const popularLikeCountExpr = 'COALESCE(pe.like_count, 0)';
 
 const formatPost = (row: PostRow) => ({
   id: row.id,
@@ -157,7 +167,7 @@ const resolveFeedCursor = (sort: 'new' | 'popular', cursor: string | null): { cl
     }
 
     return {
-      clause: 'AND (p.like_count < ? OR (p.like_count = ? AND p.created_at < ?))',
+      clause: `AND (${popularLikeCountExpr} < ? OR (${popularLikeCountExpr} = ? AND p.created_at < ?))`,
       params: [likeCount, likeCount, createdAt],
     };
   }
@@ -172,16 +182,16 @@ const encodeFeedCursor = (sort: 'new' | 'popular', row: Pick<PostRow, 'created_a
   return sort === 'popular' ? `${row.like_count}${feedCursorSeparator}${row.created_at}` : row.created_at;
 };
 
-const assertPostEditor = async (postId: number, userId: number, role: 'user' | 'admin') => {
+const assertPostEditor = async (postId: number, username: string, role: 'user' | 'admin') => {
   const db = await getDb();
-  const row = await db.get<{ user_id: number }>('SELECT user_id FROM posts WHERE id = ?', postId);
+  const row = await db.get<{ user_id: string }>('SELECT user_id FROM posts WHERE id = ?', postId);
   if (!row) throw new Error('Not found');
-  if (row.user_id !== userId && role !== 'admin') throw new Error('Forbidden');
+  if (row.user_id !== username && role !== 'admin') throw new Error('Forbidden');
 };
 
 postsRouter.get('/collections/mine', requireAuth, async (req, res) => {
   await publishDueScheduledPosts();
-  const userId = Number((req as AuthedRequest).user.sub);
+  const username = String((req as AuthedRequest).user.sub).toLowerCase();
   const limit = Math.min(Number(req.query.limit ?? 30), 50);
   const cursor = req.query.cursor ? Number(req.query.cursor) : null;
   const db = await getDb();
@@ -189,15 +199,13 @@ postsRouter.get('/collections/mine', requireAuth, async (req, res) => {
   const rows = await db.all<(PostRow & { collection_cursor: number })[]>(
     `SELECT
        pc.rowid AS collection_cursor,
-       p.id, p.text, p.image_url, p.category, p.visibility, p.status,
-      p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count,
-       p.created_at, p.updated_at, p.author_ip, p.author_country, p.author_region, p.author_city,
-       u.username, u.display_name, u.avatar_url,
+${postBaseColumns},
        CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS liked_by_me,
        1 AS collected_by_me
      FROM post_collections pc
      JOIN posts p ON p.id = pc.post_id
-     JOIN users u ON u.id = p.user_id
+     JOIN users u ON u.username = p.user_id
+     ${postEngagementJoin}
      LEFT JOIN likes l ON l.post_id = p.id AND l.user_id = ?
      WHERE pc.user_id = ?
        AND p.status = 'published'
@@ -209,19 +217,19 @@ postsRouter.get('/collections/mine', requireAuth, async (req, res) => {
            AND EXISTS (
              SELECT 1 FROM friendships f
              WHERE f.status = 'accepted'
-               AND f.user_id1 = min(p.user_id, ?)
-               AND f.user_id2 = max(p.user_id, ?)
+               AND f.user_id1 = CASE WHEN p.user_id < ? THEN p.user_id ELSE ? END
+               AND f.user_id2 = CASE WHEN p.user_id < ? THEN ? ELSE p.user_id END
            )
          )
        )
        AND (? IS NULL OR pc.rowid < ?)
      ORDER BY pc.rowid DESC
      LIMIT ?`,
-    userId,
-    userId,
-    userId,
-    userId,
-    userId,
+    username,
+    username,
+    username,
+    username,
+    username,
     cursor,
     cursor,
     limit + 1,
@@ -236,19 +244,17 @@ postsRouter.get('/collections/mine', requireAuth, async (req, res) => {
 
 postsRouter.get('/mine/manage', requireAuth, async (req, res) => {
   await publishDueScheduledPosts();
-  const userId = Number((req as AuthedRequest).user.sub);
+  const username = String((req as AuthedRequest).user.sub).toLowerCase();
   const db = await getDb();
   const rows = await db.all<PostRow[]>(
     `SELECT
-       p.id, p.text, p.image_url, p.category, p.visibility, p.status,
-      p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count,
-       p.created_at, p.updated_at, p.author_ip, p.author_country, p.author_region, p.author_city,
-       u.username, u.display_name, u.avatar_url,
+${postBaseColumns},
        0 AS liked_by_me,
        0 AS collected_by_me
      FROM posts p
-     JOIN users u ON u.id = p.user_id
-     WHERE p.user_id = ?
+    JOIN users u ON u.username = p.user_id
+    ${postEngagementJoin}
+    WHERE p.user_id = ?
      ORDER BY
        CASE p.status
          WHEN 'draft' THEN 0
@@ -257,7 +263,7 @@ postsRouter.get('/mine/manage', requireAuth, async (req, res) => {
        END,
        COALESCE(p.updated_at, p.created_at) DESC
      LIMIT 50`,
-    userId,
+    username,
   );
 
   return res.json({ items: rows.map(formatPost) });
@@ -274,11 +280,11 @@ postsRouter.get('/feed', optionalAuth, async (req, res) => {
   const cursor = parsed.data.cursor ?? null;
   const category = parsed.data.category ?? 'all';
 
-  const maybeUserId = (req as MaybeAuthedRequest).user?.sub ? Number((req as MaybeAuthedRequest).user?.sub) : null;
-  if (scope === 'friends' && !maybeUserId) return res.status(401).json({ error: 'Login required' });
+  const maybeUsername = (req as MaybeAuthedRequest).user?.sub ? String((req as MaybeAuthedRequest).user?.sub).toLowerCase() : null;
+  if (scope === 'friends' && !maybeUsername) return res.status(401).json({ error: 'Login required' });
 
   const db = await getDb();
-  const orderBy = sort === 'popular' ? 'p.like_count DESC, p.created_at DESC' : 'p.created_at DESC';
+  const orderBy = sort === 'popular' ? `${popularLikeCountExpr} DESC, p.created_at DESC` : 'p.created_at DESC';
   let cursorClause = '';
   let cursorParams: Array<string | number> = [];
   try {
@@ -292,17 +298,15 @@ postsRouter.get('/feed', optionalAuth, async (req, res) => {
   const filterParams: Array<string | number> = [...cursorParams, ...(category === 'all' ? [] : [category]), limit + 1];
 
   const rows = await db.all<PostRow[]>(
-    maybeUserId
+    maybeUsername
       ? scope === 'friends'
         ? `SELECT
-             p.id, p.text, p.image_url, p.category, p.visibility, p.status,
-             p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count,
-             p.created_at, p.updated_at, p.author_ip, p.author_country, p.author_region, p.author_city,
-             u.username, u.display_name, u.avatar_url,
+${postBaseColumns},
              CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS liked_by_me,
              CASE WHEN pc.user_id IS NULL THEN 0 ELSE 1 END AS collected_by_me
            FROM posts p
-           JOIN users u ON u.id = p.user_id
+           JOIN users u ON u.username = p.user_id
+           ${postEngagementJoin}
            LEFT JOIN likes l ON l.post_id = p.id AND l.user_id = ?
            LEFT JOIN post_collections pc ON pc.post_id = p.id AND pc.user_id = ?
            WHERE p.status = 'published'
@@ -313,8 +317,8 @@ postsRouter.get('/feed', optionalAuth, async (req, res) => {
                  AND EXISTS (
                    SELECT 1 FROM friendships f
                    WHERE f.status = 'accepted'
-                     AND f.user_id1 = min(p.user_id, ?)
-                     AND f.user_id2 = max(p.user_id, ?)
+                     AND f.user_id1 = CASE WHEN p.user_id < ? THEN p.user_id ELSE ? END
+                     AND f.user_id2 = CASE WHEN p.user_id < ? THEN ? ELSE p.user_id END
                  )
                )
              )
@@ -323,14 +327,12 @@ postsRouter.get('/feed', optionalAuth, async (req, res) => {
            ORDER BY ${orderBy}
            LIMIT ?`
         : `SELECT
-             p.id, p.text, p.image_url, p.category, p.visibility, p.status,
-             p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count,
-             p.created_at, p.updated_at, p.author_ip, p.author_country, p.author_region, p.author_city,
-             u.username, u.display_name, u.avatar_url,
+${postBaseColumns},
              CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS liked_by_me,
              CASE WHEN pc.user_id IS NULL THEN 0 ELSE 1 END AS collected_by_me
            FROM posts p
-           JOIN users u ON u.id = p.user_id
+           JOIN users u ON u.username = p.user_id
+           ${postEngagementJoin}
            LEFT JOIN likes l ON l.post_id = p.id AND l.user_id = ?
            LEFT JOIN post_collections pc ON pc.post_id = p.id AND pc.user_id = ?
            WHERE p.status = 'published'
@@ -342,8 +344,8 @@ postsRouter.get('/feed', optionalAuth, async (req, res) => {
                  AND EXISTS (
                    SELECT 1 FROM friendships f
                    WHERE f.status = 'accepted'
-                     AND f.user_id1 = min(p.user_id, ?)
-                     AND f.user_id2 = max(p.user_id, ?)
+                     AND f.user_id1 = CASE WHEN p.user_id < ? THEN p.user_id ELSE ? END
+                     AND f.user_id2 = CASE WHEN p.user_id < ? THEN ? ELSE p.user_id END
                  )
                )
              )
@@ -352,24 +354,22 @@ postsRouter.get('/feed', optionalAuth, async (req, res) => {
            ORDER BY ${orderBy}
            LIMIT ?`
       : `SELECT
-           p.id, p.text, p.image_url, p.category, p.visibility, p.status,
-           p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count,
-           p.created_at, p.updated_at, p.author_ip, p.author_country, p.author_region, p.author_city,
-           u.username, u.display_name, u.avatar_url,
+    ${postBaseColumns},
            0 AS liked_by_me,
            0 AS collected_by_me
          FROM posts p
-         JOIN users u ON u.id = p.user_id
+         JOIN users u ON u.username = p.user_id
+         ${postEngagementJoin}
          WHERE p.status = 'published'
            AND p.visibility = 'public'
            ${cursorClause}
            ${categoryClause}
          ORDER BY ${orderBy}
          LIMIT ?`,
-    ...(maybeUserId
+    ...(maybeUsername
       ? scope === 'friends'
-        ? [maybeUserId, maybeUserId, maybeUserId, maybeUserId, maybeUserId, ...filterParams]
-        : [maybeUserId, maybeUserId, maybeUserId, maybeUserId, maybeUserId, ...filterParams]
+        ? [maybeUsername, maybeUsername, maybeUsername, maybeUsername, maybeUsername, maybeUsername, maybeUsername, ...filterParams]
+        : [maybeUsername, maybeUsername, maybeUsername, maybeUsername, maybeUsername, maybeUsername, maybeUsername, ...filterParams]
       : filterParams),
   );
 
@@ -383,7 +383,7 @@ postsRouter.post('/', requireAuth, async (req, res) => {
   const parsed = createPostSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
 
-  const userId = Number((req as AuthedRequest).user.sub);
+  const username = String((req as AuthedRequest).user.sub).toLowerCase();
   const text = (parsed.data.text ?? '').trim();
   const imageUrl = (parsed.data.imageUrl ?? '').trim();
   const visibility: PostVisibility = parsed.data.visibility ?? 'public';
@@ -410,7 +410,7 @@ postsRouter.post('/', requireAuth, async (req, res) => {
        scheduled_publish_at, published_at, draft_saved_at,
        author_ip, author_country, author_region, author_city
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    userId,
+    username,
     text,
     imageUrl ? imageUrl : null,
     visibility,
@@ -435,33 +435,31 @@ postsRouter.get('/user/:username', optionalAuth, async (req, res) => {
   const username = String(req.params.username ?? '').toLowerCase();
   const limit = Math.min(Number(req.query.limit ?? 20), 50);
   const cursor = req.query.cursor ? String(req.query.cursor) : null;
-  const maybeUserId = (req as MaybeAuthedRequest).user?.sub ? Number((req as MaybeAuthedRequest).user?.sub) : null;
+  const maybeUsername = (req as MaybeAuthedRequest).user?.sub ? String((req as MaybeAuthedRequest).user?.sub).toLowerCase() : null;
 
   const db = await getDb();
-  const owner = await db.get<{ id: number }>('SELECT id FROM users WHERE lower(username) = lower(?)', username);
+  const owner = await db.get<{ username: string }>('SELECT username FROM users WHERE username = ?', username);
   if (!owner) return res.status(404).json({ error: 'Not found' });
 
   let visibilityWhere = "AND p.visibility = 'public'";
-  if (maybeUserId) {
-    if (maybeUserId === owner.id) {
+  if (maybeUsername) {
+    if (maybeUsername === owner.username) {
       visibilityWhere = '';
     } else {
-      const isFriend = await areFriends(maybeUserId, owner.id);
+      const isFriend = await areFriends(maybeUsername, owner.username);
       visibilityWhere = isFriend ? "AND p.visibility IN ('public','friends')" : "AND p.visibility = 'public'";
     }
   }
 
   const rows = await db.all<PostRow[]>(
-    maybeUserId
+    maybeUsername
       ? `SELECT
-           p.id, p.text, p.image_url, p.category, p.visibility, p.status,
-           p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count,
-           p.created_at, p.updated_at, p.author_ip, p.author_country, p.author_region, p.author_city,
-           u.username, u.display_name, u.avatar_url,
+    ${postBaseColumns},
            CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS liked_by_me,
            CASE WHEN pc.user_id IS NULL THEN 0 ELSE 1 END AS collected_by_me
          FROM posts p
-         JOIN users u ON u.id = p.user_id
+         JOIN users u ON u.username = p.user_id
+         ${postEngagementJoin}
          LEFT JOIN likes l ON l.post_id = p.id AND l.user_id = ?
          LEFT JOIN post_collections pc ON pc.post_id = p.id AND pc.user_id = ?
          WHERE p.user_id = ?
@@ -471,27 +469,25 @@ postsRouter.get('/user/:username', optionalAuth, async (req, res) => {
          ORDER BY p.created_at DESC
          LIMIT ?`
       : `SELECT
-           p.id, p.text, p.image_url, p.category, p.visibility, p.status,
-         p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count,
-           p.created_at, p.updated_at, p.author_ip, p.author_country, p.author_region, p.author_city,
-           u.username, u.display_name, u.avatar_url,
+    ${postBaseColumns},
            0 AS liked_by_me,
            0 AS collected_by_me
          FROM posts p
-         JOIN users u ON u.id = p.user_id
+         JOIN users u ON u.username = p.user_id
+         ${postEngagementJoin}
          WHERE p.user_id = ?
            AND p.status = 'published'
            ${visibilityWhere}
            ${cursor ? 'AND p.created_at < ?' : ''}
          ORDER BY p.created_at DESC
          LIMIT ?`,
-    ...(maybeUserId
+    ...(maybeUsername
       ? cursor
-        ? [maybeUserId, maybeUserId, owner.id, cursor, limit + 1]
-        : [maybeUserId, maybeUserId, owner.id, limit + 1]
+        ? [maybeUsername, maybeUsername, owner.username, cursor, limit + 1]
+        : [maybeUsername, maybeUsername, owner.username, limit + 1]
       : cursor
-        ? [owner.id, cursor, limit + 1]
-        : [owner.id, limit + 1]),
+        ? [owner.username, cursor, limit + 1]
+        : [owner.username, limit + 1]),
   );
 
   const hasMore = rows.length > limit;
@@ -504,11 +500,11 @@ postsRouter.get('/:id/manage', requireAuth, async (req, res) => {
   await publishDueScheduledPosts();
   const postId = Number(req.params.id);
   if (!Number.isFinite(postId)) return res.status(400).json({ error: 'Invalid post id' });
-  const userId = Number((req as AuthedRequest).user.sub);
+  const username = String((req as AuthedRequest).user.sub).toLowerCase();
   const role = (req as AuthedRequest).user.role;
 
   try {
-    await assertPostEditor(postId, userId, role);
+    await assertPostEditor(postId, username, role);
   } catch (error) {
     if (error instanceof Error && error.message === 'Not found') return res.status(404).json({ error: 'Not found' });
     return res.status(403).json({ error: 'Forbidden' });
@@ -517,14 +513,12 @@ postsRouter.get('/:id/manage', requireAuth, async (req, res) => {
   const db = await getDb();
   const row = await db.get<PostRow>(
     `SELECT
-       p.id, p.text, p.image_url, p.category, p.visibility, p.status,
-      p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count,
-       p.created_at, p.updated_at, p.author_ip, p.author_country, p.author_region, p.author_city,
-       u.username, u.display_name, u.avatar_url,
+${postBaseColumns},
        0 AS liked_by_me,
        0 AS collected_by_me
      FROM posts p
-     JOIN users u ON u.id = p.user_id
+     JOIN users u ON u.username = p.user_id
+    ${postEngagementJoin}
      WHERE p.id = ?`,
     postId,
   );
@@ -539,17 +533,22 @@ postsRouter.get('/:id/analytics', requireAuth, async (req, res) => {
   const parsed = analyticsQuerySchema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid query' });
 
-  const userId = Number((req as AuthedRequest).user.sub);
+  const username = String((req as AuthedRequest).user.sub).toLowerCase();
   const role = (req as AuthedRequest).user.role;
   const days = parsed.data.days ?? 14;
   const db = await getDb();
 
-  const post = await db.get<{ id: number; user_id: number; text: string; status: PostStatus; like_count: number; collect_count: number }>(
-    'SELECT id, user_id, text, status, like_count, collect_count FROM posts WHERE id = ?',
+  const post = await db.get<{ id: number; user_id: string; text: string; status: PostStatus; like_count: number; collect_count: number }>(
+    `SELECT p.id, p.user_id, p.text, p.status,
+            COALESCE(pe.like_count, 0) AS like_count,
+            COALESCE(pe.collect_count, 0) AS collect_count
+     FROM posts p
+     ${postEngagementJoin}
+     WHERE p.id = ?`,
     postId,
   );
   if (!post) return res.status(404).json({ error: 'Not found' });
-  if (post.user_id !== userId && role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+  if (post.user_id !== username && role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
 
   const commentCount = post.status === 'published'
     ? (await db.get<{ count: number }>('SELECT COUNT(*) AS count FROM comments WHERE post_id = ?', postId))?.count ?? 0
@@ -601,31 +600,29 @@ postsRouter.get('/:id', optionalAuth, async (req, res) => {
   const postId = Number(req.params.id);
   if (!Number.isFinite(postId)) return res.status(400).json({ error: 'Invalid post id' });
 
-  const viewerId = (req as MaybeAuthedRequest).user?.sub ? Number((req as MaybeAuthedRequest).user?.sub) : null;
+  const viewerUsername = (req as MaybeAuthedRequest).user?.sub ? String((req as MaybeAuthedRequest).user?.sub).toLowerCase() : null;
   const db = await getDb();
 
-  const row = await db.get<(PostRow & { user_id: number; comment_count: number })>(
+  const row = await db.get<(PostRow & { comment_count: number })>(
     `SELECT
-       p.id, p.user_id, p.text, p.image_url, p.category, p.visibility, p.status,
-       p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count,
-       p.created_at, p.updated_at, p.author_ip, p.author_country, p.author_region, p.author_city,
-       u.username, u.display_name, u.avatar_url,
+${postBaseColumns},
        (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count,
        CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS liked_by_me,
        CASE WHEN pc.user_id IS NULL THEN 0 ELSE 1 END AS collected_by_me
      FROM posts p
-     JOIN users u ON u.id = p.user_id
+       JOIN users u ON u.username = p.user_id
+       ${postEngagementJoin}
      LEFT JOIN likes l ON l.post_id = p.id AND l.user_id = ?
      LEFT JOIN post_collections pc ON pc.post_id = p.id AND pc.user_id = ?
      WHERE p.id = ?`,
-    viewerId,
-    viewerId,
+      viewerUsername,
+      viewerUsername,
     postId,
   );
   if (!row) return res.status(404).json({ error: 'Not found' });
 
   const canView =
-    row.status === 'published' ? await canViewPostByOwner(viewerId, row.user_id, row.visibility) : viewerId === row.user_id;
+      row.status === 'published' ? await canViewPostByOwner(viewerUsername, row.user_id, row.visibility) : viewerUsername === row.user_id;
   if (!canView) return res.status(403).json({ error: 'Forbidden' });
 
   return res.json({
@@ -640,10 +637,10 @@ postsRouter.put('/:id', requireAuth, async (req, res) => {
   const parsed = editPostSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
 
-  const userId = Number((req as AuthedRequest).user.sub);
+  const username = String((req as AuthedRequest).user.sub).toLowerCase();
   const role = (req as AuthedRequest).user.role;
   try {
-    await assertPostEditor(postId, userId, role);
+    await assertPostEditor(postId, username, role);
   } catch (error) {
     if (error instanceof Error && error.message === 'Not found') return res.status(404).json({ error: 'Not found' });
     return res.status(403).json({ error: 'Forbidden' });
@@ -699,11 +696,11 @@ postsRouter.put('/:id', requireAuth, async (req, res) => {
 postsRouter.delete('/:id', requireAuth, async (req, res) => {
   const postId = Number(req.params.id);
   if (!Number.isFinite(postId)) return res.status(400).json({ error: 'Invalid post id' });
-  const userId = Number((req as AuthedRequest).user.sub);
+  const username = String((req as AuthedRequest).user.sub).toLowerCase();
   const role = (req as AuthedRequest).user.role;
 
   try {
-    await assertPostEditor(postId, userId, role);
+    await assertPostEditor(postId, username, role);
   } catch (error) {
     if (error instanceof Error && error.message === 'Not found') return res.status(404).json({ error: 'Not found' });
     return res.status(403).json({ error: 'Forbidden' });
@@ -720,32 +717,30 @@ postsRouter.post('/:id/like', requireAuth, async (req, res) => {
   if (!Number.isFinite(postId)) return res.status(400).json({ error: 'Invalid post id' });
 
   await publishDueScheduledPosts();
-  const userId = Number((req as AuthedRequest).user.sub);
+  const username = String((req as AuthedRequest).user.sub).toLowerCase();
   const db = await getDb();
-  const postOwner = await db.get<{ user_id: number; visibility: PostVisibility; status: PostStatus }>(
+  const postOwner = await db.get<{ user_id: string; visibility: PostVisibility; status: PostStatus }>(
     'SELECT user_id, visibility, status FROM posts WHERE id = ?',
     postId,
   );
   if (!postOwner) return res.status(404).json({ error: 'Post not found' });
-  if (postOwner.status !== 'published' || !(await canViewPostByOwner(userId, postOwner.user_id, postOwner.visibility))) {
+  if (postOwner.status !== 'published' || !(await canViewPostByOwner(username, postOwner.user_id, postOwner.visibility))) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
   await db.exec('BEGIN');
   try {
-    const existing = await db.get('SELECT 1 FROM likes WHERE user_id = ? AND post_id = ?', userId, postId);
+    const existing = await db.get('SELECT 1 FROM likes WHERE user_id = ? AND post_id = ?', username, postId);
     if (existing) {
-      await db.run('DELETE FROM likes WHERE user_id = ? AND post_id = ?', userId, postId);
-      await db.run('UPDATE posts SET like_count = MAX(like_count - 1, 0) WHERE id = ?', postId);
+      await db.run('DELETE FROM likes WHERE user_id = ? AND post_id = ?', username, postId);
     } else {
-      await db.run('INSERT INTO likes(user_id, post_id) VALUES (?, ?)', userId, postId);
-      await db.run('UPDATE posts SET like_count = like_count + 1 WHERE id = ?', postId);
+      await db.run('INSERT INTO likes(user_id, post_id) VALUES (?, ?)', username, postId);
     }
 
-    const row = await db.get<{ like_count: number }>('SELECT like_count FROM posts WHERE id = ?', postId);
+    const row = await db.get<{ like_count: number }>('SELECT like_count FROM post_engagement WHERE post_id = ?', postId);
     await db.exec('COMMIT');
     const liked = !existing;
-    emitEvent({ type: 'post_liked', postId, likeCount: row?.like_count ?? 0, userId, liked });
+    emitEvent({ type: 'post_liked', postId, likeCount: row?.like_count ?? 0, userId: username, liked });
     return res.json({ liked, likeCount: row?.like_count ?? 0 });
   } catch (error) {
     await db.exec('ROLLBACK');
@@ -758,29 +753,27 @@ postsRouter.post('/:id/collect', requireAuth, async (req, res) => {
   if (!Number.isFinite(postId)) return res.status(400).json({ error: 'Invalid post id' });
 
   await publishDueScheduledPosts();
-  const userId = Number((req as AuthedRequest).user.sub);
+  const username = String((req as AuthedRequest).user.sub).toLowerCase();
   const db = await getDb();
-  const postOwner = await db.get<{ user_id: number; visibility: PostVisibility; status: PostStatus }>(
+  const postOwner = await db.get<{ user_id: string; visibility: PostVisibility; status: PostStatus }>(
     'SELECT user_id, visibility, status FROM posts WHERE id = ?',
     postId,
   );
   if (!postOwner) return res.status(404).json({ error: 'Post not found' });
-  if (postOwner.status !== 'published' || !(await canViewPostByOwner(userId, postOwner.user_id, postOwner.visibility))) {
+  if (postOwner.status !== 'published' || !(await canViewPostByOwner(username, postOwner.user_id, postOwner.visibility))) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
   await db.exec('BEGIN');
   try {
-    const existing = await db.get('SELECT 1 FROM post_collections WHERE user_id = ? AND post_id = ?', userId, postId);
+    const existing = await db.get('SELECT 1 FROM post_collections WHERE user_id = ? AND post_id = ?', username, postId);
     if (existing) {
-      await db.run('DELETE FROM post_collections WHERE user_id = ? AND post_id = ?', userId, postId);
-      await db.run('UPDATE posts SET collect_count = MAX(collect_count - 1, 0) WHERE id = ?', postId);
+      await db.run('DELETE FROM post_collections WHERE user_id = ? AND post_id = ?', username, postId);
     } else {
-      await db.run('INSERT INTO post_collections(user_id, post_id) VALUES (?, ?)', userId, postId);
-      await db.run('UPDATE posts SET collect_count = collect_count + 1 WHERE id = ?', postId);
+      await db.run('INSERT INTO post_collections(user_id, post_id) VALUES (?, ?)', username, postId);
     }
 
-    const row = await db.get<{ collect_count: number }>('SELECT collect_count FROM posts WHERE id = ?', postId);
+    const row = await db.get<{ collect_count: number }>('SELECT collect_count FROM post_engagement WHERE post_id = ?', postId);
     await db.exec('COMMIT');
     return res.json({ collected: !existing, collectCount: row?.collect_count ?? 0 });
   } catch (error) {

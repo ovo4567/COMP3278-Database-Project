@@ -9,11 +9,10 @@ usersRouter.get('/:username', optionalAuth, async (req, res) => {
   const username = String(req.params.username ?? '').toLowerCase();
   if (!username) return res.status(400).json({ error: 'Invalid username' });
 
-  const viewerId = (req as MaybeAuthedRequest).user?.sub ? Number((req as MaybeAuthedRequest).user?.sub) : null;
+  const viewerUsername = (req as MaybeAuthedRequest).user?.sub ? String((req as MaybeAuthedRequest).user?.sub).toLowerCase() : null;
 
   const db = await getDb();
   const user = await db.get<{
-    id: number;
     username: string;
     role: 'user' | 'admin';
     display_name: string | null;
@@ -23,23 +22,23 @@ usersRouter.get('/:username', optionalAuth, async (req, res) => {
     created_at: string;
     friend_count: number;
   }>(
-    `SELECT u.id, u.username, u.role, u.display_name, u.bio, u.avatar_url, u.status_text, u.created_at,
-            (SELECT COUNT(*) FROM friendships f WHERE f.status = 'accepted' AND (f.user_id1 = u.id OR f.user_id2 = u.id)) AS friend_count
+        `SELECT u.username, u.role, u.display_name, u.bio, u.avatar_url, u.status_text, u.created_at,
+          (SELECT COUNT(*) FROM friendships f WHERE f.status = 'accepted' AND (f.user_id1 = u.username OR f.user_id2 = u.username)) AS friend_count
      FROM users u
-     WHERE lower(u.username) = lower(?)`,
+         WHERE u.username = ?`,
     username,
   );
 
   if (!user) return res.status(404).json({ error: 'Not found' });
 
-  const viewerIsOwner = viewerId === user.id;
-  const viewerCanSeeFriendsPosts = viewerIsOwner || (viewerId ? await areFriends(viewerId, user.id) : false);
+  const viewerIsOwner = viewerUsername === user.username;
+  const viewerCanSeeFriendsPosts = viewerIsOwner || (viewerUsername ? await areFriends(viewerUsername, user.username) : false);
 
-  let friendship: { status: 'pending' | 'accepted' | 'rejected'; actionUserId: number | null } | null = null;
-  if (viewerId && !viewerIsOwner) {
-    const low = Math.min(viewerId, user.id);
-    const high = Math.max(viewerId, user.id);
-    const row = await db.get<{ status: 'pending' | 'accepted' | 'rejected'; action_user_id: number | null }>(
+  let friendship: { status: 'pending' | 'accepted' | 'rejected'; actionUserId: string | null } | null = null;
+  if (viewerUsername && !viewerIsOwner) {
+    const low = viewerUsername < user.username ? viewerUsername : user.username;
+    const high = viewerUsername < user.username ? user.username : viewerUsername;
+    const row = await db.get<{ status: 'pending' | 'accepted' | 'rejected'; action_user_id: string | null }>(
       'SELECT status, action_user_id FROM friendships WHERE user_id1 = ? AND user_id2 = ?',
       low,
       high,
@@ -65,12 +64,12 @@ usersRouter.get('/:username', optionalAuth, async (req, res) => {
         FROM likes l
         JOIN posts p2 ON p2.id = l.post_id
         WHERE p2.user_id = ? ${visibleLikesWhere}) AS likes_received`,
-    user.id,
-    user.id,
+    user.username,
+    user.username,
   );
 
   return res.json({
-    id: user.id,
+    id: user.username,
     username: user.username,
     role: user.role,
     displayName: user.display_name,

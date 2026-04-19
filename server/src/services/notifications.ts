@@ -5,8 +5,8 @@ export type NotificationPayload = {
   type: string;
   createdAt: string;
   isRead: boolean;
-  actorUser?: { id: number; username: string; displayName: string | null; avatarUrl: string | null } | null;
-  entity?: { type: string; id: number } | null;
+  actorUser?: { id: string; username: string; displayName: string | null; avatarUrl: string | null } | null;
+  entity?: { type: string; id: string | number } | null;
 };
 
 type NotificationJoinedRow = {
@@ -14,7 +14,7 @@ type NotificationJoinedRow = {
   type: string;
   created_at: string;
   is_read: 0 | 1;
-  actor_user_id: number | null;
+  actor_user_id: string | null;
   entity_type: string | null;
   entity_id: number | null;
   actor_username: string | null;
@@ -25,8 +25,8 @@ type NotificationJoinedRow = {
 const mapJoinedRow = (row: NotificationJoinedRow): NotificationPayload => {
   const actor = row.actor_user_id
     ? {
-        id: row.actor_user_id,
-        username: row.actor_username ?? '',
+        id: row.actor_username ?? row.actor_user_id,
+        username: row.actor_username ?? row.actor_user_id,
         displayName: row.actor_display_name,
         avatarUrl: row.actor_avatar_url,
       }
@@ -48,7 +48,7 @@ export const getNotificationById = async (id: number): Promise<NotificationPaylo
     `SELECT n.id, n.type, n.created_at, n.is_read, n.actor_user_id, n.entity_type, n.entity_id,
             u.username AS actor_username, u.display_name AS actor_display_name, u.avatar_url AS actor_avatar_url
      FROM notifications n
-     LEFT JOIN users u ON u.id = n.actor_user_id
+     LEFT JOIN users u ON u.username = n.actor_user_id
      WHERE n.id = ?`,
     id,
   );
@@ -57,11 +57,11 @@ export const getNotificationById = async (id: number): Promise<NotificationPaylo
 };
 
 export const createNotification = async (input: {
-  userId: number;
+  userId: string;
   type: string;
-  actorUserId?: number | null;
+  actorUserId?: string | null;
   entityType?: string | null;
-  entityId?: number | null;
+  entityId?: string | number | null;
 }): Promise<NotificationPayload | null> => {
   const db = await getDb();
   const result = await db.run(
@@ -77,13 +77,13 @@ export const createNotification = async (input: {
   return getNotificationById(id);
 };
 
-export const listNotifications = async (userId: number, limit: number, cursor: number | null): Promise<{ items: NotificationPayload[]; nextCursor: number | null }> => {
+export const listNotifications = async (userId: string, limit: number, cursor: number | null): Promise<{ items: NotificationPayload[]; nextCursor: number | null }> => {
   const db = await getDb();
   const rows = await db.all<NotificationJoinedRow[]>(
     `SELECT n.id, n.type, n.created_at, n.is_read, n.actor_user_id, n.entity_type, n.entity_id,
             u.username AS actor_username, u.display_name AS actor_display_name, u.avatar_url AS actor_avatar_url
      FROM notifications n
-     LEFT JOIN users u ON u.id = n.actor_user_id
+    LEFT JOIN users u ON u.username = n.actor_user_id
      WHERE n.user_id = ?
        AND (? IS NULL OR n.id < ?)
      ORDER BY n.id DESC

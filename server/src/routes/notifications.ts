@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { getDb } from '../db/sqlite.js';
 import { requireAuth, type AuthedRequest } from '../middleware/auth.js';
 import { emitToUserRoom } from '../realtime.js';
-import { createNotification as createNotificationService, listNotifications, type NotificationPayload } from '../services/notifications.js';
+import { listNotifications, type NotificationPayload } from '../services/notifications.js';
 
 export const notificationsRouter = Router();
 notificationsRouter.use(requireAuth);
@@ -13,12 +13,12 @@ const listSchema = z.object({
   cursor: z.coerce.number().int().min(1).optional(),
 });
 
-export const emitNotification = (userId: number, notification: NotificationPayload) => {
+export const emitNotification = (userId: string, notification: NotificationPayload) => {
   emitToUserRoom(userId, { type: 'notification_created', notification });
 };
 
 notificationsRouter.get('/', async (req, res) => {
-  const userId = Number((req as AuthedRequest).user.sub);
+  const userId = String((req as AuthedRequest).user.sub).toLowerCase();
 
   const parsed = listSchema.safeParse({ limit: req.query.limit, cursor: req.query.cursor });
   if (!parsed.success) return res.status(400).json({ error: 'Invalid query' });
@@ -31,7 +31,7 @@ notificationsRouter.get('/', async (req, res) => {
 });
 
 notificationsRouter.get('/unread-count', async (req, res) => {
-  const userId = Number((req as AuthedRequest).user.sub);
+  const userId = String((req as AuthedRequest).user.sub).toLowerCase();
   const db = await getDb();
   const row = await db.get<{ c: number }>('SELECT COUNT(*) AS c FROM notifications WHERE user_id = ? AND is_read = 0', userId);
   return res.json({ count: row?.c ?? 0 });
@@ -43,12 +43,12 @@ const markSchema = z.object({
 
 const markByEntitySchema = z.object({
   entityType: z.string().min(1).max(50),
-  entityId: z.number().int().positive(),
+  entityId: z.union([z.string().min(1), z.number().int().positive()]),
   types: z.array(z.string().min(1).max(80)).max(20).optional(),
 });
 
 notificationsRouter.post('/read', async (req, res) => {
-  const userId = Number((req as AuthedRequest).user.sub);
+  const userId = String((req as AuthedRequest).user.sub).toLowerCase();
   const parsed = markSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
 
@@ -64,14 +64,14 @@ notificationsRouter.post('/read', async (req, res) => {
 });
 
 notificationsRouter.post('/read-all', async (req, res) => {
-  const userId = Number((req as AuthedRequest).user.sub);
+  const userId = String((req as AuthedRequest).user.sub).toLowerCase();
   const db = await getDb();
   await db.run('UPDATE notifications SET is_read = 1 WHERE user_id = ?', userId);
   return res.json({ ok: true });
 });
 
 notificationsRouter.post('/read-by-entity', async (req, res) => {
-  const userId = Number((req as AuthedRequest).user.sub);
+  const userId = String((req as AuthedRequest).user.sub).toLowerCase();
   const parsed = markByEntitySchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
 

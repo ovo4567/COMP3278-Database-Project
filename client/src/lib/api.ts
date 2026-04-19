@@ -186,7 +186,7 @@ export const commentsApi = {
     return apiFetch(`/api/comments/post/${postId}?${q.toString()}`, { auth: true });
   },
 
-  async create(postId: number, input: { text: string; parentCommentId?: number | null }): Promise<{ id: number }> {
+  async create(postId: number, input: { text: string }): Promise<{ id: number }> {
     return apiFetch(`/api/comments/post/${postId}`, { method: 'POST', body: input, auth: true });
   },
 };
@@ -203,15 +203,15 @@ export const adminApi = {
     return apiFetch('/api/admin/sql', { method: 'POST', body: input, auth: true });
   },
 
-  async setUserBanned(userId: number, isBanned: boolean): Promise<{ ok: true }> {
+  async setUserBanned(userId: string, isBanned: boolean): Promise<{ ok: true }> {
     return apiFetch(`/api/admin/users/${userId}`, { method: 'PATCH', body: { isBanned }, auth: true });
   },
 
-  async deleteUser(userId: number): Promise<{ ok: true }> {
+  async deleteUser(userId: string): Promise<{ ok: true }> {
     return apiFetch(`/api/admin/users/${userId}`, { method: 'DELETE', auth: true });
   },
 
-  async getUser(userId: number): Promise<{ id: number; username: string; role: 'user' | 'admin'; isBanned: boolean }> {
+  async getUser(userId: string): Promise<{ id: string; username: string; role: 'user' | 'admin'; isBanned: boolean }> {
     return apiFetch(`/api/admin/users/${userId}`, { auth: true });
   },
 };
@@ -247,23 +247,23 @@ export const friendsApi = {
     return apiFetch(`/api/friends/requests/sent?${q.toString()}`, { auth: true });
   },
 
-  async sendRequest(userId: number): Promise<{ ok: true; status: 'pending' | 'accepted' }> {
+  async sendRequest(userId: string): Promise<{ ok: true; status: 'pending' | 'accepted' }> {
     return apiFetch(`/api/friends/request/${userId}`, { method: 'POST', auth: true });
   },
 
-  async acceptRequest(userId: number): Promise<{ ok: true }> {
+  async acceptRequest(userId: string): Promise<{ ok: true }> {
     return apiFetch(`/api/friends/request/${userId}/accept`, { method: 'PUT', auth: true });
   },
 
-  async rejectRequest(userId: number): Promise<{ ok: true }> {
+  async rejectRequest(userId: string): Promise<{ ok: true }> {
     return apiFetch(`/api/friends/request/${userId}/reject`, { method: 'PUT', auth: true });
   },
 
-  async cancelRequest(userId: number): Promise<{ ok: true }> {
+  async cancelRequest(userId: string): Promise<{ ok: true }> {
     return apiFetch(`/api/friends/request/${userId}/cancel`, { method: 'DELETE', auth: true });
   },
 
-  async unfriend(userId: number): Promise<{ ok: true }> {
+  async unfriend(userId: string): Promise<{ ok: true }> {
     return apiFetch(`/api/friends/${userId}`, { method: 'DELETE', auth: true });
   },
 };
@@ -288,7 +288,7 @@ export const notificationsApi = {
     return apiFetch('/api/notifications/read-all', { method: 'POST', auth: true });
   },
 
-  async markReadByEntity(input: { entityType: string; entityId: number; types?: string[] }): Promise<{ ok: true }> {
+  async markReadByEntity(input: { entityType: string; entityId: string | number; types?: string[] }): Promise<{ ok: true }> {
     return apiFetch('/api/notifications/read-by-entity', { method: 'POST', body: input, auth: true });
   },
 };

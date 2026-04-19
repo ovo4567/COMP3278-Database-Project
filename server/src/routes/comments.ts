@@ -12,10 +12,9 @@ export const commentsRouter = Router();
 
 const createCommentSchema = z.object({
   text: z.string().min(1).max(2000),
-  parentCommentId: z.number().int().positive().optional(),
 });
 
-const emitNotification = (userId: number, notification: NotificationPayload) => {
+const emitNotification = (userId: string, notification: NotificationPayload) => {
   emitToUserRoom(userId, { type: 'notification_created', notification });
 };
 
@@ -32,7 +31,7 @@ const extractMentions = (text: string): string[] => {
 
 const getPublishedPostForDiscussion = async (postId: number) => {
   const db = await getDb();
-  return db.get<{ id: number; user_id: number; status: 'draft' | 'scheduled' | 'published' }>(
+  return db.get<{ id: number; user_id: string; status: 'draft' | 'scheduled' | 'published' }>(
     'SELECT id, user_id, status FROM posts WHERE id = ?',
     postId,
   );
@@ -43,11 +42,11 @@ commentsRouter.get('/post/:postId', optionalAuth, async (req, res) => {
   const postId = Number(req.params.postId);
   if (!Number.isFinite(postId)) return res.status(400).json({ error: 'Invalid post id' });
 
-  const viewerId = (req as MaybeAuthedRequest).user?.sub ? Number((req as MaybeAuthedRequest).user?.sub) : null;
+  const viewerUsername = (req as MaybeAuthedRequest).user?.sub ? String((req as MaybeAuthedRequest).user?.sub).toLowerCase() : null;
   const post = await getPublishedPostForDiscussion(postId);
   if (!post) return res.status(404).json({ error: 'Post not found' });
   if (post.status !== 'published') return res.status(403).json({ error: 'Discussion is unavailable until the post is published' });
-  if (!(await canViewPost(postId, viewerId))) return res.status(403).json({ error: 'Forbidden' });
+  if (!(await canViewPost(postId, viewerUsername))) return res.status(403).json({ error: 'Forbidden' });
 
   const limit = Math.min(Number(req.query.limit ?? 20), 50);
   const cursor = req.query.cursor ? Number(req.query.cursor) : null;
@@ -56,7 +55,6 @@ commentsRouter.get('/post/:postId', optionalAuth, async (req, res) => {
   const rows = await db.all<
     {
       id: number;
-      parent_comment_id: number | null;
       text: string;
       created_at: string;
       author_ip: string | null;
@@ -66,20 +64,14 @@ commentsRouter.get('/post/:postId', optionalAuth, async (req, res) => {
       username: string;
       display_name: string | null;
       avatar_url: string | null;
-      parent_username: string | null;
-      parent_display_name: string | null;
     }[]
   >(
     `SELECT
-       c.id, c.parent_comment_id, c.text, c.created_at,
+       c.id, c.text, c.created_at,
        c.author_ip, c.author_country, c.author_region, c.author_city,
-       u.username, u.display_name, u.avatar_url,
-       pu.username AS parent_username,
-       pu.display_name AS parent_display_name
+       u.username, u.display_name, u.avatar_url
      FROM comments c
-     JOIN users u ON u.id = c.user_id
-     LEFT JOIN comments pc ON pc.id = c.parent_comment_id
-     LEFT JOIN users pu ON pu.id = pc.user_id
+     JOIN users u ON u.username = c.user_id
      WHERE c.post_id = ?
        ${cursor ? 'AND c.id < ?' : ''}
      ORDER BY c.id DESC
@@ -94,7 +86,6 @@ commentsRouter.get('/post/:postId', optionalAuth, async (req, res) => {
   return res.json({
     items: items.map((row) => ({
       id: row.id,
-      parentCommentId: row.parent_comment_id,
       text: row.text,
       createdAt: row.created_at,
       authorMeta: {
@@ -106,12 +97,6 @@ commentsRouter.get('/post/:postId', optionalAuth, async (req, res) => {
           label: formatLocation({ country: row.author_country, region: row.author_region, city: row.author_city }),
         },
       },
-      parentUser: row.parent_username
-        ? {
-            username: row.parent_username,
-            displayName: row.parent_display_name,
-          }
-        : null,
       user: { username: row.username, displayName: row.display_name, avatarUrl: row.avatar_url },
     })),
     nextCursor,
@@ -126,33 +111,21 @@ commentsRouter.post('/post/:postId', requireAuth, async (req, res) => {
   const parsed = createCommentSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
 
-  const userId = Number((req as AuthedRequest).user.sub);
+  const username = String((req as AuthedRequest).user.sub).toLowerCase();
   const post = await getPublishedPostForDiscussion(postId);
   if (!post) return res.status(404).json({ error: 'Post not found' });
   if (post.status !== 'published') return res.status(403).json({ error: 'You can only comment after the post is published' });
-  if (!(await canViewPost(postId, userId))) return res.status(403).json({ error: 'Forbidden' });
+  if (!(await canViewPost(postId, username))) return res.status(403).json({ error: 'Forbidden' });
   const db = await getDb();
-
-  let parentCommentAuthorId: number | null = null;
-  if (parsed.data.parentCommentId) {
-    const parent = await db.get<{ id: number; user_id: number }>(
-      'SELECT id, user_id FROM comments WHERE id = ? AND post_id = ?',
-      parsed.data.parentCommentId,
-      postId,
-    );
-    if (!parent) return res.status(404).json({ error: 'Parent comment not found' });
-    parentCommentAuthorId = parent.user_id;
-  }
 
   const location = lookupLocation(req.ip);
   const result = await db.run(
     `INSERT INTO comments(
-       post_id, user_id, parent_comment_id, text,
+       post_id, user_id, text,
        author_ip, author_country, author_region, author_city
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     postId,
-    userId,
-    parsed.data.parentCommentId ?? null,
+    username,
     parsed.data.text.trim(),
     req.ip ?? null,
     location.country,
@@ -161,35 +134,24 @@ commentsRouter.post('/post/:postId', requireAuth, async (req, res) => {
   );
   const commentId = result.lastID as number;
 
-  if (parentCommentAuthorId && parentCommentAuthorId !== userId) {
-    const notification = await createNotification({
-      userId: parentCommentAuthorId,
-      type: 'comment_reply',
-      actorUserId: userId,
-      entityType: 'post',
-      entityId: postId,
-    });
-    if (notification) emitNotification(parentCommentAuthorId, notification);
-  }
-
   const mentionedUsernames = extractMentions(parsed.data.text);
   if (mentionedUsernames.length > 0) {
     const placeholders = mentionedUsernames.map(() => '?').join(', ');
-    const mentionedUsers = await db.all<{ id: number; username: string }[]>(
-      `SELECT id, username FROM users WHERE lower(username) IN (${placeholders})`,
+    const mentionedUsers = await db.all<{ username: string }[]>(
+      `SELECT username FROM users WHERE username IN (${placeholders})`,
       ...mentionedUsernames,
     );
 
     for (const mentioned of mentionedUsers) {
-      if (mentioned.id === userId || mentioned.id === parentCommentAuthorId) continue;
+      if (mentioned.username === username) continue;
       const notification = await createNotification({
-        userId: mentioned.id,
+        userId: mentioned.username,
         type: 'comment_mention',
-        actorUserId: userId,
+        actorUserId: username,
         entityType: 'post',
         entityId: postId,
       });
-      if (notification) emitNotification(mentioned.id, notification);
+      if (notification) emitNotification(mentioned.username, notification);
     }
   }
 

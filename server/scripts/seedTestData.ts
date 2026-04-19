@@ -1,11 +1,12 @@
 /**
- * Seed realistic test data into the SQLite database.
+ * Seed a fixed demo dataset into the SQLite database.
  *
  * Run:
  *   - From repo root:   npm -w server run seed:test
  *   - Or directly:     npx tsx server/scripts/seedTestData.ts
  *
- * Reset and reseed (DANGEROUS: deletes existing data in the DB):
+ * Seed once to create the fixed demo dataset.
+ * Rebuild from scratch only when needed:
  *   npm -w server run seed:test -- --force
  */
 
@@ -18,6 +19,8 @@ import { createNotification } from '../src/services/notifications.js';
 import { lookupLocation } from '../src/services/location.js';
 import { config } from '../src/config.js';
 import type { PostCategory } from '../src/social/categories.js';
+
+const demoNow = new Date();
 
 type SeedUserInput = {
   username: string;
@@ -39,6 +42,7 @@ type SeededPost = {
   userId: number;
   createdAt: Date;
   status: 'draft' | 'scheduled' | 'published';
+  category: PostCategory;
 };
 
 type SeededComment = {
@@ -48,16 +52,19 @@ type SeededComment = {
   createdAt: Date;
 };
 
-type SeedPostTemplate = {
-  text: string;
-  visibility: 'public' | 'friends';
-  category: PostCategory;
+type PostFragments = {
+  subjects: string[];
 };
 
+type CommentFragments = {
+  openers: string[];
+};
+
+const fillTemplate = (template: string, replacements: Record<string, string>) =>
+  template.replace(/\{(\w+)\}/g, (_, key: string) => replacements[key] ?? '');
+
 const parseArgs = (argv: string[]) => {
-  // For demo repos, always start from a clean database so the app is usable immediately.
-  // Keep parsing for backwards compatibility, but default to force reseed.
-  const force = !argv.includes('--no-force');
+  const force = argv.includes('--force');
   return { force };
 };
 
@@ -66,16 +73,31 @@ const pad2 = (n: number) => String(n).padStart(2, '0');
 const randInt = (minInclusive: number, maxInclusive: number): number => {
   const min = Math.ceil(minInclusive);
   const max = Math.floor(maxInclusive);
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+  return min + Math.floor((max - min) / 2);
 };
 
 const randFloat = (minInclusive: number, maxInclusive: number): number => {
-  return Math.random() * (maxInclusive - minInclusive) + minInclusive;
+  return (minInclusive + maxInclusive) / 2;
 };
 
 const pickOne = <T>(arr: T[]): T => {
   if (arr.length === 0) throw new Error('pickOne: empty array');
-  return arr[randInt(0, arr.length - 1)]!;
+  return arr[Math.floor(arr.length / 2)]!;
+};
+
+const pickBySequence = <T>(items: T[], index: number, rotation: number, step: number): T => {
+  if (items.length === 0) throw new Error('pickBySequence: empty array');
+  return items[(rotation + index * step) % items.length]!;
+};
+
+const daysAgo = (days: number, extraHours = 0, extraMinutes = 0): Date =>
+  new Date(demoNow.getTime() - (((days * 24 + extraHours) * 60 + extraMinutes) * 60 * 1000));
+
+const timeBetween = (start: Date, end: Date, numerator: number, denominator: number): Date => {
+  if (denominator <= 0) return new Date(start.getTime());
+  const clamped = Math.max(0, Math.min(numerator, denominator));
+  const span = end.getTime() - start.getTime();
+  return new Date(start.getTime() + Math.floor((span * clamped) / denominator));
 };
 
 const toSqliteDateTime = (d: Date): string => {
@@ -85,19 +107,14 @@ const toSqliteDateTime = (d: Date): string => {
 };
 
 const dateWithinLastDays = (days: number): Date => {
-  const now = Date.now();
-  const msBack = randInt(0, days * 24 * 60 * 60);
-  return new Date(now - msBack * 1000);
+  return daysAgo(days);
 };
 
 const dateBetween = (start: Date, end: Date): Date => {
-  const a = start.getTime();
-  const b = end.getTime();
-  const t = randFloat(Math.min(a, b), Math.max(a, b));
-  return new Date(t);
+  return new Date(Math.floor((start.getTime() + end.getTime()) / 2));
 };
 
-const hoursAgo = (hours: number): Date => new Date(Date.now() - hours * 60 * 60 * 1000);
+const hoursAgo = (hours: number): Date => new Date(demoNow.getTime() - hours * 60 * 60 * 1000);
 
 const imageKeywordsForCategory: Record<PostCategory, string> = {
   all: 'lifestyle,people',
@@ -112,6 +129,241 @@ const imageUrlForCategory = (category: PostCategory, sequence: number): string =
   const keywords = imageKeywordsForCategory[category];
   const lock = 1000 + sequence;
   return `https://loremflickr.com/1200/800/${keywords}?lock=${lock}`;
+};
+
+const postFragmentsByCategory: Record<PostCategory, PostFragments> = {
+  all: {
+    subjects: [
+      'Quick reset from today',
+      'Small check-in',
+      'Day recap',
+      'Low-key win',
+      'Midday pause',
+      'Evening note',
+      'Tiny update',
+      'Nothing dramatic',
+    ],
+  },
+  food: {
+    subjects: [
+      'Lunch break update',
+      'Dinner experiment',
+      'Recipe note',
+      'Snack stop',
+      'Kitchen win',
+      'Plate of the day',
+      'Coffee break reset',
+      'Weekend bite',
+    ],
+  },
+  jobs: {
+    subjects: [
+      'Career note',
+      'Interview prep',
+      'Portfolio pass',
+      'Resume cleanup',
+      'Application update',
+      'Work note',
+      'Feedback round',
+      'Skill-building session',
+    ],
+  },
+  others: {
+    subjects: [
+      'Side project note',
+      'Creative experiment',
+      'Random idea',
+      'Tiny build log',
+      'Weekend curiosity',
+      'Playground update',
+      'Trying something new',
+      'Loose sketch',
+    ],
+  },
+  studies: {
+    subjects: [
+      'Study block',
+      'Reading sprint',
+      'Notes cleanup',
+      'Revision pass',
+      'Library reset',
+      'Focus session',
+      'Assignment check-in',
+      'Learning note',
+    ],
+  },
+  travel: {
+    subjects: [
+      'Travel note',
+      'Train-window moment',
+      'Route change',
+      'Weekend detour',
+      'City walk',
+      'View from the seat',
+      'Short trip reset',
+      'On the move',
+    ],
+  },
+};
+
+const postActions = [
+  'I spent a little extra time on',
+  'I started with',
+  'I finished',
+  'I cleaned up',
+  'I tried',
+  'I came back to',
+  'I made room for',
+  'I followed up on',
+];
+
+const postDetails = [
+  'one small thing that had been hanging around.',
+  'a calmer version of the plan.',
+  'the part that actually moves things forward.',
+  'something I had been putting off.',
+  'a better rhythm for the rest of the day.',
+  'a note to myself for tomorrow.',
+  'the simplest path instead of the loudest one.',
+  'the detail I kept skipping before.',
+];
+
+const postClosers = [
+  'It felt like progress without the noise.',
+  'Good enough for a demo day.',
+  'Small wins still count.',
+  'That was the useful part.',
+  'I will take that.',
+  'Nothing flashy, just steady.',
+  'It made the day smoother.',
+  'Worth keeping.',
+];
+
+const commentOpenersByCategory: Record<PostCategory, CommentFragments> = {
+  all: {
+    openers: [
+      'This feels like a grounded update.',
+      'I like how natural this comes across.',
+      'That is the kind of post people actually respond to.',
+      'This has a nice steady tone.',
+      'There is a good amount of detail here.',
+      'I can follow the point without extra context.',
+      'This reads like a real day, which I appreciate.',
+      'The balance here is working well.',
+    ],
+  },
+  food: {
+    openers: [
+      'That looks genuinely good.',
+      'Now I am hungry again.',
+      'This is strong lunch energy.',
+      'The plating makes it look even better.',
+      'I would absolutely try this.',
+      'That sounds like a very solid meal.',
+      'This is the kind of food post that wins the feed.',
+      'I can almost taste this from here.',
+    ],
+  },
+  jobs: {
+    openers: [
+      'This is a useful career check-in.',
+      'I like the practical angle here.',
+      'That kind of note is genuinely helpful.',
+      'This feels like real progress.',
+      'The update is clear without being too much.',
+      'I would save this for later.',
+      'There is a lot of useful detail in here.',
+      'This is the kind of work note that pays off.',
+    ],
+  },
+  others: {
+    openers: [
+      'This is exactly the sort of experiment I like seeing.',
+      'There is a nice curiosity in this one.',
+      'I appreciate the low-pressure energy here.',
+      'This feels playful in a good way.',
+      'The idea comes through clearly.',
+      'This is the kind of side project that gets interesting fast.',
+      'I like the rough edges on this.',
+      'It is cool to see an idea in motion.',
+    ],
+  },
+  studies: {
+    openers: [
+      'This study setup feels calm and usable.',
+      'I like how organized this looks.',
+      'That is a pretty clean focus block.',
+      'This makes the work feel manageable.',
+      'There is some nice structure here.',
+      'This is the kind of note that actually helps later.',
+      'The rhythm here looks strong.',
+      'I can tell the planning paid off.',
+    ],
+  },
+  travel: {
+    openers: [
+      'This looks like a reset in the best way.',
+      'That view is doing a lot of work here.',
+      'I like the slow pace of this update.',
+      'This has real travel mood.',
+      'It feels good just reading this one.',
+      'That is the kind of detour people remember.',
+      'This makes me want a window seat.',
+      'The calm tone fits the trip really well.',
+    ],
+  },
+};
+
+const commentSupportLines = [
+  '@{owner} Nice balance between detail and brevity.',
+  '@{owner} This actually feels practical.',
+  '@{owner} The framing makes it easy to follow.',
+  '@{owner} You made the update sound effortless.',
+  '@{owner} The pacing here is really good.',
+  '@{owner} I can see why this stood out.',
+  '@{owner} Solid call to share it.',
+  '@{owner} There is enough detail to be useful without overdoing it.',
+];
+
+const commentOwnerReplies = [
+  '@{first} Glad it landed that way.',
+  '@{first} That was the goal.',
+  '@{first} I was hoping it would read clearly.',
+  '@{first} Appreciate the feedback.',
+  '@{first} I tried to keep it simple.',
+  '@{first} That helps a lot.',
+  '@{first} I am still refining it.',
+  '@{first} Nice to hear.',
+];
+
+const commentFollowUps = [
+  '@{second} The extra context helps a lot.',
+  '@{second} That detail makes it even better.',
+  '@{second} I am with you on that.',
+  '@{second} It works because it stays focused.',
+  '@{second} The smaller scope is probably why it reads well.',
+  '@{second} This feels easy to come back to later.',
+  '@{second} Exactly the kind of thing that sticks.',
+  '@{second} I would save this too.',
+];
+
+const postCategoryOrder: PostCategory[] = ['all', 'food', 'studies', 'jobs', 'travel', 'others'];
+
+const postVisibilityByCategory: Record<PostCategory, Array<'public' | 'friends'>> = {
+  all: ['public', 'friends', 'public', 'public'],
+  food: ['public', 'public', 'friends', 'public'],
+  jobs: ['public', 'friends', 'public', 'public'],
+  others: ['friends', 'public', 'public', 'friends'],
+  studies: ['public', 'friends', 'public', 'friends'],
+  travel: ['public', 'friends', 'public', 'public'],
+};
+
+const buildPostText = (category: PostCategory, userIndex: number, sequence: number, slot: number): string => {
+  const subject = pickBySequence(postFragmentsByCategory[category].subjects, sequence, userIndex + slot, 3);
+  const action = pickBySequence(postActions, sequence + userIndex, slot, 5);
+  const detail = pickBySequence(postDetails, sequence + slot, userIndex, 7);
+  const closer = pickBySequence(postClosers, sequence + userIndex * 2, slot, 11);
+  return `${subject}: ${action} ${detail} ${closer}`;
 };
 
 const normalizePair = (a: number, b: number) => (a < b ? { user1: a, user2: b } : { user1: b, user2: a });
@@ -175,7 +427,7 @@ const seedAdmin = async (): Promise<SeededUser> => {
   }
 
   const passwordHash = await hashPassword(adminPassword);
-  const createdAt = toSqliteDateTime(dateWithinLastDays(90));
+  const createdAt = toSqliteDateTime(daysAgo(480, 3));
 
   const result = await db.run(
     'INSERT INTO users(username, password_hash, role, display_name, bio, status_text, avatar_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
@@ -290,7 +542,7 @@ const seedRegularUsers = async (): Promise<SeededUser[]> => {
       continue;
     }
 
-    const createdAt = toSqliteDateTime(dateWithinLastDays(90));
+    const createdAt = toSqliteDateTime(daysAgo(320 - i * 11, i % 5, i * 4));
     const passwordHash = await hashPassword(base[i]!.password);
 
     const result = await db.run(
@@ -315,50 +567,29 @@ const seedRegularUsers = async (): Promise<SeededUser[]> => {
 const seedPosts = async (users: SeededUser[]): Promise<SeededPost[]> => {
   const db = await getDb();
 
-  const postTemplates: SeedPostTemplate[] = [
-    {
-      text: 'Lunch break reset. Found a cozy place with great noodles and quiet lighting.',
-      visibility: 'public',
-      category: 'food',
-    },
-    {
-      text: 'Library sprint done. Sharing my study setup for this week.',
-      visibility: 'friends',
-      category: 'studies',
-    },
-    {
-      text: 'Career update: wrapped a mock interview session and wrote down key takeaways.',
-      visibility: 'public',
-      category: 'jobs',
-    },
-    {
-      text: 'Weekend travel moodboard. This view made the entire day.',
-      visibility: 'public',
-      category: 'travel',
-    },
-    {
-      text: 'General life dump: balancing projects, rest, and keeping momentum.',
-      visibility: 'friends',
-      category: 'all',
-    },
-    {
-      text: 'Random share from today. Not a big moment, just a good one.',
-      visibility: 'public',
-      category: 'others',
-    },
-  ];
-
   const posts: SeededPost[] = [];
+  const specialAges: Record<string, number> = {
+    '0:0': 365,
+    '1:0': 30,
+    '2:0': 7,
+  };
+  const specialCategories: Record<string, PostCategory> = {
+    '0:0': 'travel',
+    '1:0': 'studies',
+    '2:0': 'jobs',
+  };
 
   for (let userIndex = 0; userIndex < users.length; userIndex++) {
     const u = users[userIndex]!;
     const postsPerUser = 4;
     for (let i = 0; i < postsPerUser; i++) {
       const sequence = userIndex * postsPerUser + i;
-      const template = postTemplates[(userIndex * postsPerUser + i) % postTemplates.length]!;
-      const hoursOffset = userIndex * postsPerUser * 3 + i * 3 + 2;
-      const createdAt = hoursAgo(hoursOffset);
-      const category = template.category;
+      const key = `${userIndex}:${i}`;
+      const category = specialCategories[key] ?? postCategoryOrder[sequence % postCategoryOrder.length]!;
+      const visibilityOptions = postVisibilityByCategory[category];
+      const visibility = visibilityOptions[(userIndex + i) % visibilityOptions.length]!;
+      const text = buildPostText(category, userIndex, sequence, i);
+      const createdAt = specialAges[key] !== undefined ? daysAgo(specialAges[key]!) : hoursAgo(userIndex * postsPerUser * 3 + i * 3 + 2);
       const hasImage = sequence % 3 !== 1;
       const imageUrl = hasImage ? imageUrlForCategory(category, sequence) : null;
       const network = networkForUserIndex(userIndex);
@@ -374,9 +605,9 @@ const seedPosts = async (users: SeededUser[]): Promise<SeededPost[]> => {
           created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?, NULL)`,
         u.id,
-        template.text,
+        text,
         imageUrl,
-        template.visibility,
+        visibility,
         category,
         status,
         scheduledPublishAt ? toSqliteDateTime(scheduledPublishAt) : null,
@@ -390,7 +621,7 @@ const seedPosts = async (users: SeededUser[]): Promise<SeededPost[]> => {
       );
 
       const postId = result.lastID as number;
-      posts.push({ id: postId, userId: u.id, createdAt, status });
+      posts.push({ id: postId, userId: u.id, createdAt, status, category });
     }
   }
 
@@ -411,31 +642,40 @@ const seedComments = async (users: SeededUser[], posts: SeededPost[]): Promise<S
     const firstCommenter = participants[postIndex % participants.length]!;
     const secondCommenter = participants[(postIndex + 1) % participants.length]!;
     const thirdCommenter = participants[(postIndex + 2) % participants.length]!;
+    const opener = pickBySequence(commentOpenersByCategory[p.category].openers, postIndex, Math.max(ownerIndex, 0), 3);
+    const support = fillTemplate(
+      pickBySequence(commentSupportLines, postIndex + owner.id, firstCommenter.id, 5),
+      { owner: owner.username },
+    );
+    const ownerReply = fillTemplate(
+      pickBySequence(commentOwnerReplies, postIndex + firstCommenter.id, secondCommenter.id, 7),
+      { first: firstCommenter.username },
+    );
+    const followUp = fillTemplate(
+      pickBySequence(commentFollowUps, postIndex + secondCommenter.id, thirdCommenter.id, 11),
+      { second: secondCommenter.username },
+    ) + ` [thread ${pad2(postIndex + 1)}]`;
 
     const commentPlan = [
       {
         commenter: firstCommenter,
         parentCommentId: null,
-        text: 'This looks great. Where did you take this?',
-        mentionUser: null,
+        text: opener,
       },
       {
         commenter: secondCommenter,
         parentCommentId: null,
-        text: `@${owner.username} this is a strong update. I saved a few ideas from it.`,
-        mentionUser: owner,
+        text: support,
       },
       {
         commenter: owner,
         parentCommentId: 'first',
-        text: `@${firstCommenter.username} Thanks. I can share more details later today.`,
-        mentionUser: firstCommenter,
+        text: ownerReply,
       },
       {
         commenter: thirdCommenter,
         parentCommentId: 'second',
-        text: `@${secondCommenter.username} Same here. The image and note combo works really well.`,
-        mentionUser: secondCommenter,
+        text: followUp,
       },
     ] as const;
 
@@ -475,7 +715,6 @@ const seedComments = async (users: SeededUser[], posts: SeededPost[]): Promise<S
 
       if (i === 0) firstCommentId = commentId;
       if (i === 1) secondCommentId = commentId;
-
     }
   }
 
@@ -485,12 +724,14 @@ const seedComments = async (users: SeededUser[], posts: SeededPost[]): Promise<S
 const seedLikes = async (users: SeededUser[], posts: SeededPost[]) => {
   const db = await getDb();
 
-  for (const u of users) {
-    const pLike = randFloat(0.3, 0.7);
-    for (const p of posts) {
+  for (let userIndex = 0; userIndex < users.length; userIndex++) {
+    const u = users[userIndex]!;
+    for (let postIndex = 0; postIndex < posts.length; postIndex++) {
+      const p = posts[postIndex]!;
       if (p.status !== 'published') continue;
-      if (Math.random() > pLike) continue;
-      const createdAt = dateBetween(p.createdAt, new Date());
+      if (u.id === p.userId) continue;
+      if (((userIndex + 1) * (postIndex + 3)) % 5 >= 2) continue;
+      const createdAt = timeBetween(p.createdAt, demoNow, userIndex + postIndex + 1, users.length + posts.length + 1);
       await db.run(
         'INSERT OR IGNORE INTO likes(user_id, post_id, created_at) VALUES (?, ?, ?)',
         u.id,
@@ -506,11 +747,13 @@ const seedLikes = async (users: SeededUser[], posts: SeededPost[]) => {
 const seedPostCollections = async (users: SeededUser[], posts: SeededPost[]) => {
   const db = await getDb();
 
-  for (const user of users) {
-    const pCollect = randFloat(0.18, 0.42);
-    for (const post of posts) {
-      if (post.status !== 'published' || post.userId === user.id || Math.random() > pCollect) continue;
-      const createdAt = dateBetween(post.createdAt, new Date());
+  for (let userIndex = 0; userIndex < users.length; userIndex++) {
+    const user = users[userIndex]!;
+    for (let postIndex = 0; postIndex < posts.length; postIndex++) {
+      const post = posts[postIndex]!;
+      if (post.status !== 'published' || post.userId === user.id) continue;
+      if (((userIndex + 2) * (postIndex + 5)) % 7 >= 3) continue;
+      const createdAt = timeBetween(post.createdAt, demoNow, userIndex + postIndex + 2, users.length + posts.length + 2);
       await db.run(
         'INSERT OR IGNORE INTO post_collections(user_id, post_id, created_at) VALUES (?, ?, ?)',
         user.id,
@@ -526,13 +769,14 @@ const seedPostCollections = async (users: SeededUser[], posts: SeededPost[]) => 
 const seedPostViews = async (users: SeededUser[], posts: SeededPost[]) => {
   const db = await getDb();
 
-  for (const post of posts) {
+  for (let postIndex = 0; postIndex < posts.length; postIndex++) {
+    const post = posts[postIndex]!;
     if (post.status !== 'published') continue;
 
-    const viewCount = randInt(6, 18);
+    const viewCount = 6 + (postIndex % 13);
     for (let i = 0; i < viewCount; i++) {
-      const maybeViewer = Math.random() < 0.72 ? pickOne(users) : null;
-      const createdAt = dateBetween(post.createdAt, new Date());
+      const maybeViewer = (postIndex + i) % 4 === 0 ? null : users[(postIndex + i) % users.length]!;
+      const createdAt = timeBetween(post.createdAt, demoNow, i + 1, viewCount + 1);
       await db.run(
         'INSERT INTO post_views(post_id, viewer_user_id, viewer_session, created_at) VALUES (?, ?, ?, ?)',
         post.id,
@@ -550,12 +794,14 @@ const seedPostViews = async (users: SeededUser[], posts: SeededPost[]) => {
 const seedCommentInteractions = async (users: SeededUser[], comments: SeededComment[]) => {
   const db = await getDb();
 
-  for (const comment of comments) {
-    for (const user of users) {
+  for (let commentIndex = 0; commentIndex < comments.length; commentIndex++) {
+    const comment = comments[commentIndex]!;
+    for (let userIndex = 0; userIndex < users.length; userIndex++) {
+      const user = users[userIndex]!;
       if (user.id === comment.userId) continue;
 
-      if (Math.random() < 0.38) {
-        const createdAt = dateBetween(comment.createdAt, new Date());
+      if (((userIndex + commentIndex) % 4) < 2) {
+        const createdAt = timeBetween(comment.createdAt, demoNow, userIndex + 1, users.length + 1);
         await db.run(
           'INSERT OR IGNORE INTO comment_likes(user_id, comment_id, created_at) VALUES (?, ?, ?)',
           user.id,
@@ -564,8 +810,8 @@ const seedCommentInteractions = async (users: SeededUser[], comments: SeededComm
         );
       }
 
-      if (Math.random() < 0.16) {
-        const createdAt = dateBetween(comment.createdAt, new Date());
+      if (((userIndex * 2 + commentIndex) % 5) === 0) {
+        const createdAt = timeBetween(comment.createdAt, demoNow, commentIndex + 1, comments.length + 1);
         await db.run(
           'INSERT OR IGNORE INTO comment_collections(user_id, comment_id, created_at) VALUES (?, ?, ?)',
           user.id,
@@ -583,77 +829,81 @@ const seedCommentInteractions = async (users: SeededUser[], comments: SeededComm
 const seedFriendships = async (users: SeededUser[]) => {
   const db = await getDb();
 
-  // Only create friendships among regular users (not admin) for more predictable density.
-  const regular = users;
-
   const acceptedPairs: Array<{ a: SeededUser; b: SeededUser }> = [];
 
-  for (let i = 0; i < regular.length; i++) {
-    for (let j = i + 1; j < regular.length; j++) {
-      if (Math.random() >= 0.3) continue;
+  const acceptedPairsIndex = [
+    [0, 1],
+    [2, 3],
+    [4, 5],
+    [6, 7],
+    [8, 9],
+  ] as const;
 
-      const a = regular[i]!;
-      const b = regular[j]!;
-      acceptedPairs.push({ a, b });
+  for (let pairIndex = 0; pairIndex < acceptedPairsIndex.length; pairIndex++) {
+    const [leftIndex, rightIndex] = acceptedPairsIndex[pairIndex]!;
+    const a = users[leftIndex];
+    const b = users[rightIndex];
+    if (!a || !b) continue;
 
-      const { user1, user2 } = normalizePair(a.id, b.id);
-      const actionUserId = Math.random() < 0.5 ? a.id : b.id;
-      const createdAt = toSqliteDateTime(dateWithinLastDays(30));
-
-      await db.run(
-        "INSERT OR IGNORE INTO friendships(user_id1, user_id2, status, action_user_id, created_at, updated_at) VALUES (?, ?, 'accepted', ?, ?, ?)",
-        user1,
-        user2,
-        actionUserId,
-        createdAt,
-        createdAt,
-      );
-
-      // Add a lightweight notification so the Notifications page has content.
-      const receiverId = actionUserId === a.id ? b.id : a.id;
-      await createNotification({
-        userId: receiverId,
-        type: 'friend_request_accepted',
-        actorUserId: actionUserId,
-        entityType: 'user',
-        entityId: actionUserId,
-      });
-    }
-  }
-
-  // Create a few pending requests so the UI can test friend-request notifications.
-  const pairsSet = new Set(acceptedPairs.map(({ a, b }) => `${Math.min(a.id, b.id)}:${Math.max(a.id, b.id)}`));
-
-  let pendingToCreate = 6;
-  let guard = 0;
-  while (pendingToCreate > 0 && guard++ < 500) {
-    const a = pickOne(regular);
-    const b = pickOne(regular.filter((u) => u.id !== a.id));
-    const key = `${Math.min(a.id, b.id)}:${Math.max(a.id, b.id)}`;
-    if (pairsSet.has(key)) continue;
+    acceptedPairs.push({ a, b });
 
     const { user1, user2 } = normalizePair(a.id, b.id);
-    const senderId = a.id;
-    const createdAt = toSqliteDateTime(dateWithinLastDays(7));
+    const actionUserId = pairIndex % 2 === 0 ? a.id : b.id;
+    const createdAt = toSqliteDateTime(daysAgo(45 - pairIndex * 4, pairIndex + 1));
+
+    await db.run(
+      "INSERT OR IGNORE INTO friendships(user_id1, user_id2, status, action_user_id, created_at, updated_at) VALUES (?, ?, 'accepted', ?, ?, ?)",
+      user1,
+      user2,
+      actionUserId,
+      createdAt,
+      createdAt,
+    );
+
+    const receiverId = actionUserId === a.id ? b.id : a.id;
+    await createNotification({
+      userId: receiverId,
+      type: 'friend_request_accepted',
+      actorUserId: actionUserId,
+      entityType: 'user',
+      entityId: actionUserId,
+    });
+  }
+
+  const pendingPairsIndex = [
+    [0, 2],
+    [1, 3],
+    [2, 4],
+    [3, 5],
+    [4, 6],
+    [5, 7],
+  ] as const;
+
+  for (let pairIndex = 0; pairIndex < pendingPairsIndex.length; pairIndex++) {
+    const [senderIndex, receiverIndex] = pendingPairsIndex[pairIndex]!;
+    const sender = users[senderIndex];
+    const receiver = users[receiverIndex];
+    if (!sender || !receiver) continue;
+
+    const { user1, user2 } = normalizePair(sender.id, receiver.id);
+    const createdAt = toSqliteDateTime(daysAgo(12 - pairIndex, pairIndex));
 
     const result = await db.run(
       "INSERT OR IGNORE INTO friendships(user_id1, user_id2, status, action_user_id, created_at, updated_at) VALUES (?, ?, 'pending', ?, ?, NULL)",
       user1,
       user2,
-      senderId,
+      sender.id,
       createdAt,
     );
 
     if ((result.changes ?? 0) > 0) {
-      const receiverId = b.id;
       await createNotification({
-        userId: receiverId,
+        userId: receiver.id,
         type: 'friend_request_received',
-        actorUserId: senderId,
+        actorUserId: sender.id,
         entityType: 'user',
-        entityId: senderId,
+        entityId: sender.id,
       });
-      pendingToCreate--;
     }
   }
 
@@ -667,6 +917,13 @@ const main = async () => {
 
   console.log('Initializing schema...');
   await runMigrations();
+
+  const db = await getDb();
+  const existingPosts = await db.get<{ count: number }>('SELECT COUNT(*) AS count FROM posts');
+  if (!force && (existingPosts?.count ?? 0) > 0) {
+    console.log('Demo data already exists; skipping seed. Use --force to rebuild it.');
+    return;
+  }
 
   console.log('Creating users...');
   const admin = await seedAdmin();

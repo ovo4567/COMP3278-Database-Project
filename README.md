@@ -36,13 +36,13 @@ Possible native build requirement:
 2. Create env files:
    - `cp server/.env.example server/.env`
    - `cp client/.env.example client/.env`
-3. Seed demo data (wipes and resets the local DB): `npm -w server run seed:test`
+3. Seed demo data once for a fresh DB: `npm -w server run seed:test`
 4. Start both apps: `npm run dev`
    - API: http://localhost:4000
    - Web: http://localhost:5173
 
 ## Docker
-1. Optional seed: `docker compose run --rm server npm run seed:test`
+1. Optional first-time seed: `docker compose run --rm server npm run seed:test`
 2. Start containers: `docker compose up --build`
 3. Open: http://localhost:5173
 
@@ -51,11 +51,12 @@ Possible native build requirement:
 - Users: `seed_user01` ... `seed_user10` / `password123`
 
 ## Seeding notes
-- `npm -w server run seed:test` is demo-oriented and resets the database by default.
-- To keep existing data: `npm -w server run seed:test -- --no-force`
+- `npm -w server run seed:test` loads the fixed demo dataset only when the database is empty.
+- To rebuild the demo data from scratch: `npm -w server run seed:test -- --force`
 - Seeded posts use fixed image URLs chosen to match categories.
 - Seeded users may or may not have avatar photos.
-- The seed is not strictly deterministic: the structure is stable, but timestamps and interaction distribution are regenerated each reset.
+- The seeded post/comment content is fixed; timestamps and engagement data are only regenerated when you rebuild with `--force`.
+- The fixed dataset includes sample posts from 365, 30, and 7 days ago so the feed has older timeline examples.
 - The SQLite data directory is created automatically on first run.
 
 ## Scripts

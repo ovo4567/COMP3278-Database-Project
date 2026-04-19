@@ -7,10 +7,12 @@ import { areFriends, canViewPostByOwner, type PostVisibility } from '../social/v
 import { postCategories, type PostCategory } from '../social/categories.js';
 import { lookupLocation, formatLocation } from '../services/location.js';
 import { publishDueScheduledPosts } from '../services/publish.js';
+import { buildImageInputSchema } from '../validation/image.js';
 
 export const postsRouter = Router();
 
 type PostStatus = 'draft' | 'scheduled' | 'published';
+const postImageInputSchema = buildImageInputSchema(1_500_000, 'Post image');
 
 type PostRow = {
   id: number;
@@ -41,7 +43,7 @@ const postStatusSchema = z.enum(['draft', 'scheduled', 'published']);
 
 const createPostSchema = z.object({
   text: z.string().max(5000).optional(),
-  imageUrl: z.string().url().max(500).optional().nullable().or(z.literal('')),
+  imageUrl: postImageInputSchema.optional().nullable().or(z.literal('')),
   visibility: z.enum(['public', 'friends']).optional(),
   category: z.enum(postCategories).optional(),
   status: postStatusSchema.optional(),

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getDb } from '../db/sqlite.js';
 import { requireAuth, type AuthedRequest } from '../middleware/auth.js';
 import { formatLocation } from '../services/location.js';
+import { avatarInputSchema } from '../validation/avatar.js';
 
 export const meRouter = Router();
 
@@ -10,7 +11,7 @@ const updateMeSchema = z.object({
   displayName: z.string().max(64).optional().or(z.literal('')),
   status: z.string().max(120).optional().or(z.literal('')),
   bio: z.string().max(200).optional().or(z.literal('')),
-  avatarUrl: z.string().url().max(500).optional().or(z.literal('')),
+  avatarUrl: avatarInputSchema.optional().or(z.literal('')),
 });
 
 meRouter.get('/', requireAuth, async (req, res) => {

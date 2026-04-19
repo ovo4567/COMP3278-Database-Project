@@ -39,7 +39,7 @@ export function NavBar(props: { user: User | null; unreadNotifications: number; 
             <span className="ui-avatar h-11 w-11 rounded-[20px] text-base">✦</span>
             <div className="min-w-0">
               <div className="ui-title ui-brand text-lg leading-none">Social Pulse</div>
-              <div className="ui-muted hidden text-xs sm:block">Glassy, live, and made for fast-moving friend circles</div>
+              <div className="ui-muted hidden text-xs sm:block">Glow, Motion, and Live Energy</div>
             </div>
           </Link>
 

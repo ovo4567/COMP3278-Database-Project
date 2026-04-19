@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { adminApi, authApi, friendsApi, notificationsApi, postsApi, usersApi } from '../lib/api';
 import type { FeedPost, FriendRequestItem, FriendUser, User, UserProfile } from '../lib/types';
+import { fileToAvatarDataUrl } from '../lib/avatarUpload';
 import { requestUnreadRefresh } from '../lib/notificationsSync';
 import { PostCard } from '../components/PostCard';
 import { Timestamp } from '../components/Timestamp';
@@ -43,6 +44,8 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
   const [editStatus, setEditStatus] = useState('');
   const [editBio, setEditBio] = useState('');
   const [editAvatarUrl, setEditAvatarUrl] = useState('');
+  const [avatarFileName, setAvatarFileName] = useState<string | null>(null);
+  const [avatarProcessing, setAvatarProcessing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveOk, setSaveOk] = useState(false);
@@ -215,6 +218,7 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
     setEditStatus(profile.status ?? '');
     setEditBio(profile.bio ?? '');
     setEditAvatarUrl(profile.avatarUrl ?? '');
+    setAvatarFileName(null);
   }, [profile?.id]);
 
   useEffect(() => {
@@ -253,7 +257,8 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
   }, [items, profile]);
 
   const updateProfilePost = (updated: FeedPost) => {
-    const { user: _user, ...rest } = updated;
+    const { user, ...rest } = updated;
+    void user;
     setItems((prev) =>
       prev.map((item) =>
         item.id === updated.id ? { ...item, ...rest } : item,
@@ -892,21 +897,73 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
 
                 <label className="grid gap-1 lg:col-span-2">
                   <div className="text-xs text-gray-600 dark:text-gray-400">Avatar URL</div>
+                  <div className="flex items-center gap-3">
+                    {editAvatarUrl ? (
+                      <img src={editAvatarUrl} alt="Avatar preview" className="h-14 w-14 rounded-2xl border object-cover" />
+                    ) : (
+                      <div className="ui-avatar h-14 w-14 rounded-2xl text-sm uppercase">
+                        {profileInitials}
+                      </div>
+                    )}
+                    <div className="min-w-0 text-xs text-gray-500 dark:text-gray-400">
+                      {avatarFileName ? `Selected file: ${avatarFileName}` : 'Use an image URL or choose a local image file.'}
+                    </div>
+                  </div>
                   <input
                     value={editAvatarUrl}
                     onChange={(e) => {
                       setEditAvatarUrl(e.target.value);
+                      setAvatarFileName(null);
                       setSaveOk(false);
                     }}
                     className="ui-input"
                     placeholder="https://…"
                   />
+                  <div className="flex flex-wrap items-center gap-3">
+                    <label className="ui-btn rounded-full px-4 py-2 cursor-pointer">
+                      {avatarProcessing ? 'Processing…' : 'Choose local image'}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        disabled={avatarProcessing || saving}
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          setAvatarProcessing(true);
+                          setSaveError(null);
+                          setSaveOk(false);
+                          try {
+                            const nextAvatar = await fileToAvatarDataUrl(file);
+                            setEditAvatarUrl(nextAvatar);
+                            setAvatarFileName(file.name);
+                          } catch (err) {
+                            setSaveError(err instanceof Error ? err.message : 'Failed to process image');
+                          } finally {
+                            setAvatarProcessing(false);
+                            e.target.value = '';
+                          }
+                        }}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="ui-btn rounded-full px-4 py-2"
+                      onClick={() => {
+                        setEditAvatarUrl('');
+                        setAvatarFileName(null);
+                        setSaveOk(false);
+                      }}
+                    >
+                      Clear avatar
+                    </button>
+                  </div>
                 </label>
               </div>
 
               <div className="mt-5 flex justify-end">
                 <button
-                  disabled={saving}
+                  disabled={saving || avatarProcessing}
                   onClick={async () => {
                     setSaving(true);
                     setSaveError(null);

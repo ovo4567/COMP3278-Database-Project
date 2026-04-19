@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { POST_CATEGORIES, POST_CATEGORY_LABELS, type PostCategory, type User } from '../lib/types';
+import { fileToLocalImageDataUrl } from '../lib/localImage';
 
 export function PostComposer(props: {
   currentUser?: User | null;
@@ -7,6 +8,8 @@ export function PostComposer(props: {
 }) {
   const [text, setText] = useState('');
   const [imageUrl, setImageUrl] = useState('');
+  const [imageFileName, setImageFileName] = useState<string | null>(null);
+  const [imageProcessing, setImageProcessing] = useState(false);
   const [visibility, setVisibility] = useState<'public' | 'friends'>('public');
   const [category, setCategory] = useState<PostCategory>('all');
   const [saving, setSaving] = useState(false);
@@ -25,7 +28,7 @@ export function PostComposer(props: {
     e.preventDefault();
     setError(null);
     if (!canSubmit) {
-      setError('Add text or an image URL');
+      setError('Add text or an image');
       return;
     }
 
@@ -39,6 +42,7 @@ export function PostComposer(props: {
       });
       setText('');
       setImageUrl('');
+      setImageFileName(null);
       setVisibility('public');
       setCategory('all');
     } catch (err) {
@@ -82,10 +86,59 @@ export function PostComposer(props: {
             />
             <input
               value={imageUrl}
-              onChange={(e) => setImageUrl(e.target.value)}
-              placeholder="Drop an image URL to make the card pop"
+              onChange={(e) => {
+                setImageUrl(e.target.value);
+                setImageFileName(null);
+              }}
+              placeholder="Drop an image URL or choose a local image"
               className="ui-input"
             />
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="ui-btn rounded-full px-4 py-2 cursor-pointer">
+                {imageProcessing ? 'Processing…' : 'Choose local image'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={imageProcessing || saving}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setImageProcessing(true);
+                    setError(null);
+                    try {
+                      const nextImage = await fileToLocalImageDataUrl(file, {
+                        maxDimension: 1600,
+                        maxFileBytes: 12 * 1024 * 1024,
+                        outputType: 'image/jpeg',
+                        quality: 0.85,
+                        fileTooLargeMessage: 'Please choose an image smaller than 12MB',
+                      });
+                      setImageUrl(nextImage);
+                      setImageFileName(file.name);
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : 'Failed to process image');
+                    } finally {
+                      setImageProcessing(false);
+                      e.target.value = '';
+                    }
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                className="ui-btn rounded-full px-4 py-2"
+                onClick={() => {
+                  setImageUrl('');
+                  setImageFileName(null);
+                }}
+              >
+                Clear image
+              </button>
+              <div className="ui-muted text-xs">
+                {imageFileName ? `Selected file: ${imageFileName}` : 'Local images are compressed before saving.'}
+              </div>
+            </div>
 
             {trimmedImageUrl ? (
               <div className="overflow-hidden rounded-[24px] border border-white/25 bg-white/35 p-2 shadow-[0_20px_44px_-30px_rgb(var(--ui-shadow-rgb)_/_0.48)] backdrop-blur-xl dark:bg-white/10">
@@ -138,7 +191,7 @@ export function PostComposer(props: {
               <div className="flex items-center gap-2 self-end">
                 <button
                   type="submit"
-                  disabled={saving || !canSubmit}
+                  disabled={saving || imageProcessing || !canSubmit}
                   className="ui-btn ui-btn-primary rounded-full px-5 py-2.5 disabled:opacity-50"
                 >
                   {saving ? 'Posting…' : 'Publish post'}

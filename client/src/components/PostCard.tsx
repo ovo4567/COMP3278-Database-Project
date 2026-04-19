@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { postsApi } from '../lib/api';
 import { POST_CATEGORIES, POST_CATEGORY_LABELS, type FeedPost, type PostCategory, type User } from '../lib/types';
+import { fileToLocalImageDataUrl } from '../lib/localImage';
 import { CommentsPanel } from './CommentsPanel';
 import { Timestamp } from './Timestamp';
 
@@ -16,6 +17,8 @@ export function PostCard(props: {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [text, setText] = useState(props.post.text);
   const [imageUrl, setImageUrl] = useState(props.post.imageUrl ?? '');
+  const [imageFileName, setImageFileName] = useState<string | null>(null);
+  const [imageProcessing, setImageProcessing] = useState(false);
   const [visibility, setVisibility] = useState<'public' | 'friends'>(props.post.visibility ?? 'public');
   const [category, setCategory] = useState<PostCategory>(props.post.category ?? 'all');
   const [status, setStatus] = useState(props.post.status);
@@ -66,7 +69,7 @@ export function PostCard(props: {
     const nextText = text.trim();
     const nextImageUrl = imageUrl.trim();
     if (status !== 'draft' && !nextText && !nextImageUrl) {
-      setError('Published or scheduled posts need text or an image URL');
+      setError('Published or scheduled posts need text or an image');
       return;
     }
     if (status === 'scheduled') {
@@ -178,7 +181,66 @@ export function PostCard(props: {
       {editing ? (
         <div className="mt-4 space-y-3 rounded-[24px] border border-white/25 bg-white/30 p-3 backdrop-blur-xl dark:bg-white/10">
           <textarea value={text} onChange={(e) => setText(e.target.value)} className="ui-textarea min-h-24" />
-          <input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="Optional image URL" className="ui-input" />
+          <input
+            value={imageUrl}
+            onChange={(e) => {
+              setImageUrl(e.target.value);
+              setImageFileName(null);
+            }}
+            placeholder="Optional image URL or local image"
+            className="ui-input"
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="ui-btn rounded-full px-4 py-2 cursor-pointer">
+              {imageProcessing ? 'Processing…' : 'Choose local image'}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                disabled={imageProcessing || busyAction === 'save'}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setImageProcessing(true);
+                  setError(null);
+                  try {
+                    const nextImage = await fileToLocalImageDataUrl(file, {
+                      maxDimension: 1600,
+                      maxFileBytes: 12 * 1024 * 1024,
+                      outputType: 'image/jpeg',
+                      quality: 0.85,
+                      fileTooLargeMessage: 'Please choose an image smaller than 12MB',
+                    });
+                    setImageUrl(nextImage);
+                    setImageFileName(file.name);
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Failed to process image');
+                  } finally {
+                    setImageProcessing(false);
+                    e.target.value = '';
+                  }
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              className="ui-btn rounded-full px-4 py-2"
+              onClick={() => {
+                setImageUrl('');
+                setImageFileName(null);
+              }}
+            >
+              Clear image
+            </button>
+            <div className="ui-muted text-xs">
+              {imageFileName ? `Selected file: ${imageFileName}` : 'Local images are compressed before saving.'}
+            </div>
+          </div>
+          {imageUrl ? (
+            <div className="overflow-hidden rounded-[24px] border border-white/25 bg-white/35 p-2 backdrop-blur-xl dark:bg-white/10">
+              <img src={imageUrl} alt="Post preview" className="max-h-80 w-full rounded-[18px] object-contain" />
+            </div>
+          ) : null}
           <div>
             <div className="text-xs font-medium uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">Visibility</div>
             <div className="mt-2 ui-segmented">
@@ -224,7 +286,7 @@ export function PostCard(props: {
           </div>
           {error ? <div className="ui-error">{error}</div> : null}
           <div className="flex justify-end">
-            <button onClick={() => void save()} className="ui-btn ui-btn-primary rounded-full px-4 py-2" disabled={busyAction === 'save'} type="button">
+            <button onClick={() => void save()} className="ui-btn ui-btn-primary rounded-full px-4 py-2" disabled={busyAction === 'save' || imageProcessing} type="button">
               {busyAction === 'save' ? 'Saving…' : 'Save changes'}
             </button>
           </div>

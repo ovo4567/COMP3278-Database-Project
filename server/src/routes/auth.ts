@@ -11,6 +11,7 @@ import {
 } from '../auth/tokens.js';
 import { config } from '../config.js';
 import { lookupLocation } from '../services/location.js';
+import { avatarInputSchema } from '../validation/avatar.js';
 
 const normalizeUsername = (username: string) => username.toLowerCase();
 
@@ -20,7 +21,7 @@ const signupSchema = z.object({
   displayName: z.string().min(1).max(64).optional(),
   status: z.string().max(120).optional(),
   bio: z.string().max(200).optional(),
-  avatarUrl: z.string().url().max(500).optional(),
+  avatarUrl: avatarInputSchema.optional(),
 });
 
 const loginSchema = z.object({

@@ -92,7 +92,7 @@ export function FeedPage(props: { currentUser: User | null }) {
           <div className="max-w-full">
             <div className="ui-kicker">Home feed</div>
             <h1 className="ui-h1 mt-4 text-3xl leading-tight sm:text-4xl lg:text-[3.2rem]">
-              A brighter social feed with more glow, motion, <span className="ui-brand">and energy.</span>
+              <span className="ui-brand">SocialPulse: </span> feed your feed now
             </h1>
             <div className="mt-6 flex flex-wrap items-center gap-3">
               <button

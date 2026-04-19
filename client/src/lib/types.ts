@@ -52,7 +52,6 @@ export type FeedPost = {
   publishedAt: string | null;
   likeCount: number;
   collectCount: number;
-  viewCount: number;
   likedByMe?: boolean;
   collectedByMe?: boolean;
   createdAt: string;
@@ -69,17 +68,6 @@ export type ManagedPost = FeedPost;
 
 export type PostDetail = FeedPost & {
   commentCount: number;
-};
-
-export type PostAnalytics = {
-  post: { id: number; text: string; status: PostStatus };
-  overview: {
-    views: number;
-    likes: number;
-    collects: number;
-    comments: number;
-  };
-  series: Array<{ day: string; views: number; likes: number; collects: number; comments: number }>;
 };
 
 export type AdminAnalytics = {
@@ -178,10 +166,6 @@ export type Comment = {
   parentCommentId: number | null;
   text: string;
   createdAt: string;
-  likeCount: number;
-  collectCount: number;
-  likedByMe: boolean;
-  collectedByMe: boolean;
   authorMeta: AuthorMeta;
   parentUser?: {
     username: string;
@@ -192,17 +176,6 @@ export type Comment = {
     displayName: string | null;
     avatarUrl: string | null;
   };
-};
-
-export type DeviceSession = {
-  id: string;
-  userAgent: string | null;
-  ip: string | null;
-  location: LocationSummary;
-  createdAt: string;
-  lastUsedAt: string;
-  expiresAt: string;
-  current: boolean;
 };
 
 export type RealtimeEvent =

@@ -8,12 +8,11 @@ This project is a demo-ready social media app built with:
 - Realtime: Socket.IO
 
 Main features currently implemented:
-- User signup/login with access and refresh tokens
+- User signup/login with access tokens
 - Feed with categories, likes, comments, and collections
 - Draft posts, scheduled posts, and quick edit flows
 - Friends system with public/friends-only visibility
-- Comment replies, likes, collections, and `@user` mention notifications
-- Device session management with IP/location display
+- Comment replies and `@user` mention notifications
 - Search for users and posts
 - Admin dashboard and read-only SQL console
 - Realtime updates for post/comment/like activity
@@ -81,28 +80,20 @@ Environment and system requirements:
 ## 7. Database Schema
 Core application tables:
 - `users`
-- `sessions`
 - `posts`
 - `likes`
 - `comments`
 - `friendships`
 - `notifications`
 - `post_collections`
-- `post_views`
-- `comment_likes`
-- `comment_collections`
 
 ### Relationship summary
-- `users` -> `sessions`: one-to-many via `sessions.user_id`
 - `users` -> `posts`: one-to-many via `posts.user_id`
 - `users` -> `comments`: one-to-many via `comments.user_id`
 - `posts` -> `comments`: one-to-many via `comments.post_id`
 - `users` <-> `posts` via `likes`: many-to-many
 - `users` <-> `posts` via `post_collections`: many-to-many
-- `users` <-> `comments` via `comment_likes`: many-to-many
-- `users` <-> `comments` via `comment_collections`: many-to-many
 - `users` <-> `users` via `friendships`: self-referencing many-to-many with canonical ordering
-- `posts` -> `post_views`: one-to-many
 - `notifications` belongs to a recipient user and optionally an actor user
 
 ### Important schema notes
@@ -120,16 +111,15 @@ Core application tables:
   - `notifications.type`
   - `notifications.is_read`
 - Comments now enforce same-post parent integrity through a composite foreign key.
-- `post_views.viewer_session` now references `sessions(id)`.
 - `notifications.entity_type` + `entity_id` remains polymorphic: validated, but not backed by a single strict FK to multiple target tables.
 
 ## 8. API Surface
 Major backend areas:
-- Auth: signup, login, refresh, logout
-- Me: profile read/update/delete, device session list/remove
+- Auth: signup, login, logout
+- Me: profile read/update/delete
 - Users: public profile read
-- Posts: feed, user posts, post detail, post create/edit/delete, collections, manage list, per-post analytics
-- Comments: list/create, like, collect
+- Posts: feed, user posts, post detail, post create/edit/delete, collections, manage list
+- Comments: list/create
 - Friends: list, incoming requests, sent requests, request/accept/reject/remove/cancel
 - Notifications: list, unread count, mark read variants
 - Search: users + posts
@@ -141,9 +131,7 @@ Important variables:
 - `PORT`
 - `CLIENT_ORIGIN`
 - `JWT_ACCESS_SECRET`
-- `JWT_REFRESH_SECRET`
 - `ACCESS_TOKEN_TTL_SECONDS`
-- `REFRESH_TOKEN_TTL_SECONDS`
 - `SQLITE_PATH`
 - `ADMIN_USERNAME`
 - `ADMIN_PASSWORD`

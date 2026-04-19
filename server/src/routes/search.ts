@@ -55,7 +55,6 @@ searchRouter.get('/', optionalAuth, async (req, res) => {
       published_at: string | null;
       like_count: number;
       collect_count: number;
-      view_count: number;
       created_at: string;
       updated_at: string | null;
       author_ip: string | null;
@@ -72,7 +71,7 @@ searchRouter.get('/', optionalAuth, async (req, res) => {
     maybeUserId
       ? `SELECT
            p.id, p.text, p.image_url, p.category, p.visibility, p.status, p.scheduled_publish_at, p.published_at,
-           p.like_count, p.collect_count, p.view_count, p.created_at, p.updated_at,
+           p.like_count, p.collect_count, p.created_at, p.updated_at,
            p.author_ip, p.author_country, p.author_region, p.author_city,
            u.username, u.display_name, u.avatar_url,
            CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS liked_by_me,
@@ -100,7 +99,7 @@ searchRouter.get('/', optionalAuth, async (req, res) => {
          LIMIT ?`
       : `SELECT
            p.id, p.text, p.image_url, p.category, p.visibility, p.status, p.scheduled_publish_at, p.published_at,
-           p.like_count, p.collect_count, p.view_count, p.created_at, p.updated_at,
+         p.like_count, p.collect_count, p.created_at, p.updated_at,
            p.author_ip, p.author_country, p.author_region, p.author_city,
            u.username, u.display_name, u.avatar_url,
            0 AS liked_by_me,
@@ -135,7 +134,6 @@ searchRouter.get('/', optionalAuth, async (req, res) => {
       publishedAt: p.published_at,
       likeCount: p.like_count,
       collectCount: p.collect_count,
-      viewCount: p.view_count,
       likedByMe: Boolean(p.liked_by_me),
       collectedByMe: Boolean(p.collected_by_me),
       createdAt: p.created_at,

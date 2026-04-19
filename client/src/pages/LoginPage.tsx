@@ -18,7 +18,6 @@ export function LoginPage(props: { onLogin: (user: User) => void }) {
     try {
       const res = await authApi.login({ username: username.trim(), password });
       tokenStorage.setAccessToken(res.accessToken);
-      tokenStorage.setRefreshToken(res.refreshToken);
       props.onLogin(res.user);
       navigate('/');
     } catch (err) {

@@ -590,10 +590,10 @@ const seedPosts = async (users: SeededUser[]): Promise<SeededPost[]> => {
       const result = await db.run(
         `INSERT INTO posts(
           user_id, text, image_url, visibility, category, status, scheduled_publish_at, published_at, draft_saved_at,
-          like_count, view_count, collect_count,
+          like_count, collect_count,
           author_ip, author_country, author_region, author_city,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?, NULL)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, NULL)`,
         u.id,
         text,
         imageUrl,
@@ -686,9 +686,9 @@ const seedComments = async (users: SeededUser[], posts: SeededPost[]): Promise<S
 
       const result = await db.run(
         `INSERT INTO comments(
-          post_id, user_id, parent_comment_id, text, like_count, collect_count,
+          post_id, user_id, parent_comment_id, text,
           author_ip, author_country, author_region, author_city, created_at
-        ) VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         p.id,
         plan.commenter.id,
         parentCommentId,
@@ -754,66 +754,6 @@ const seedPostCollections = async (users: SeededUser[], posts: SeededPost[]) => 
   }
 
   await db.run('UPDATE posts SET collect_count = (SELECT COUNT(*) FROM post_collections pc WHERE pc.post_id = posts.id)');
-};
-
-const seedPostViews = async (users: SeededUser[], posts: SeededPost[]) => {
-  const db = await getDb();
-
-  for (let postIndex = 0; postIndex < posts.length; postIndex++) {
-    const post = posts[postIndex]!;
-    if (post.status !== 'published') continue;
-
-    const viewCount = 6 + (postIndex % 13);
-    for (let i = 0; i < viewCount; i++) {
-      const maybeViewer = (postIndex + i) % 4 === 0 ? null : users[(postIndex + i) % users.length]!;
-      const createdAt = timeBetween(post.createdAt, demoNow, i + 1, viewCount + 1);
-      await db.run(
-        'INSERT INTO post_views(post_id, viewer_user_id, viewer_session, created_at) VALUES (?, ?, ?, ?)',
-        post.id,
-        maybeViewer?.id ?? null,
-        // Anonymous demo views do not have a persisted session row.
-        null,
-        toSqliteDateTime(createdAt),
-      );
-    }
-  }
-
-  await db.run('UPDATE posts SET view_count = (SELECT COUNT(*) FROM post_views pv WHERE pv.post_id = posts.id)');
-};
-
-const seedCommentInteractions = async (users: SeededUser[], comments: SeededComment[]) => {
-  const db = await getDb();
-
-  for (let commentIndex = 0; commentIndex < comments.length; commentIndex++) {
-    const comment = comments[commentIndex]!;
-    for (let userIndex = 0; userIndex < users.length; userIndex++) {
-      const user = users[userIndex]!;
-      if (user.id === comment.userId) continue;
-
-      if (((userIndex + commentIndex) % 4) < 2) {
-        const createdAt = timeBetween(comment.createdAt, demoNow, userIndex + 1, users.length + 1);
-        await db.run(
-          'INSERT OR IGNORE INTO comment_likes(user_id, comment_id, created_at) VALUES (?, ?, ?)',
-          user.id,
-          comment.id,
-          toSqliteDateTime(createdAt),
-        );
-      }
-
-      if (((userIndex * 2 + commentIndex) % 5) === 0) {
-        const createdAt = timeBetween(comment.createdAt, demoNow, commentIndex + 1, comments.length + 1);
-        await db.run(
-          'INSERT OR IGNORE INTO comment_collections(user_id, comment_id, created_at) VALUES (?, ?, ?)',
-          user.id,
-          comment.id,
-          toSqliteDateTime(createdAt),
-        );
-      }
-    }
-  }
-
-  await db.run('UPDATE comments SET like_count = (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = comments.id)');
-  await db.run('UPDATE comments SET collect_count = (SELECT COUNT(*) FROM comment_collections cc WHERE cc.comment_id = comments.id)');
 };
 
 const seedFriendships = async (users: SeededUser[]) => {
@@ -926,19 +866,13 @@ const main = async () => {
   const posts = await seedPosts(regularUsers);
 
   console.log('Creating comments...');
-  const comments = await seedComments(regularUsers, posts);
+  await seedComments(regularUsers, posts);
 
   console.log('Creating likes...');
   await seedLikes(regularUsers, posts);
 
   console.log('Creating collections...');
   await seedPostCollections(regularUsers, posts);
-
-  console.log('Creating post views...');
-  await seedPostViews(regularUsers, posts);
-
-  console.log('Creating comment interactions...');
-  await seedCommentInteractions(regularUsers, comments);
 
   console.log('Done seeding test data.');
   console.log('Accounts:');

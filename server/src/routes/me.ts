@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { getDb } from '../db/sqlite.js';
 import { requireAuth, type AuthedRequest } from '../middleware/auth.js';
-import { formatLocation } from '../services/location.js';
 import { avatarInputSchema } from '../validation/avatar.js';
 
 export const meRouter = Router();
@@ -42,60 +41,6 @@ meRouter.get('/', requireAuth, async (req, res) => {
     avatarUrl: user.avatar_url,
     createdAt: user.created_at,
   });
-});
-
-meRouter.get('/devices', requireAuth, async (req, res) => {
-  const userId = Number((req as AuthedRequest).user.sub);
-  const currentSessionId = (req as AuthedRequest).user.sid ?? null;
-  const db = await getDb();
-  const rows = await db.all<
-    {
-      id: string;
-      user_agent: string | null;
-      ip: string | null;
-      country: string | null;
-      region: string | null;
-      city: string | null;
-      created_at: string;
-      last_used_at: string;
-      expires_at: string;
-    }[]
-  >(
-    `SELECT id, user_agent, ip, country, region, city, created_at, last_used_at, expires_at
-     FROM sessions
-     WHERE user_id = ?
-     ORDER BY datetime(last_used_at) DESC`,
-    userId,
-  );
-
-  return res.json({
-    items: rows.map((row) => ({
-      id: row.id,
-      userAgent: row.user_agent,
-      ip: row.ip,
-      location: {
-        country: row.country,
-        region: row.region,
-        city: row.city,
-        label: formatLocation({ country: row.country, region: row.region, city: row.city }),
-      },
-      createdAt: row.created_at,
-      lastUsedAt: row.last_used_at,
-      expiresAt: row.expires_at,
-      current: currentSessionId === row.id,
-    })),
-  });
-});
-
-meRouter.delete('/devices/:sessionId', requireAuth, async (req, res) => {
-  const userId = Number((req as AuthedRequest).user.sub);
-  const sessionId = String(req.params.sessionId ?? '');
-  if (!sessionId) return res.status(400).json({ error: 'Invalid session id' });
-
-  const db = await getDb();
-  const result = await db.run('DELETE FROM sessions WHERE id = ? AND user_id = ?', sessionId, userId);
-  if ((result.changes ?? 0) === 0) return res.status(404).json({ error: 'Session not found' });
-  return res.json({ ok: true });
 });
 
 meRouter.patch('/', requireAuth, async (req, res) => {

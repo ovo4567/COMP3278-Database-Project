@@ -59,8 +59,6 @@ commentsRouter.get('/post/:postId', optionalAuth, async (req, res) => {
       parent_comment_id: number | null;
       text: string;
       created_at: string;
-      like_count: number;
-      collect_count: number;
       author_ip: string | null;
       author_country: string | null;
       author_region: string | null;
@@ -70,29 +68,23 @@ commentsRouter.get('/post/:postId', optionalAuth, async (req, res) => {
       avatar_url: string | null;
       parent_username: string | null;
       parent_display_name: string | null;
-      liked_by_me: 0 | 1;
-      collected_by_me: 0 | 1;
     }[]
   >(
     `SELECT
-       c.id, c.parent_comment_id, c.text, c.created_at, c.like_count, c.collect_count,
+       c.id, c.parent_comment_id, c.text, c.created_at,
        c.author_ip, c.author_country, c.author_region, c.author_city,
        u.username, u.display_name, u.avatar_url,
        pu.username AS parent_username,
-       pu.display_name AS parent_display_name,
-       CASE WHEN cl.user_id IS NULL THEN 0 ELSE 1 END AS liked_by_me,
-       CASE WHEN cc.user_id IS NULL THEN 0 ELSE 1 END AS collected_by_me
+       pu.display_name AS parent_display_name
      FROM comments c
      JOIN users u ON u.id = c.user_id
      LEFT JOIN comments pc ON pc.id = c.parent_comment_id
      LEFT JOIN users pu ON pu.id = pc.user_id
-     LEFT JOIN comment_likes cl ON cl.comment_id = c.id AND cl.user_id = ?
-     LEFT JOIN comment_collections cc ON cc.comment_id = c.id AND cc.user_id = ?
      WHERE c.post_id = ?
        ${cursor ? 'AND c.id < ?' : ''}
      ORDER BY c.id DESC
      LIMIT ?`,
-    ...(cursor ? [viewerId, viewerId, postId, cursor, limit + 1] : [viewerId, viewerId, postId, limit + 1]),
+    ...(cursor ? [postId, cursor, limit + 1] : [postId, limit + 1]),
   );
 
   const hasMore = rows.length > limit;
@@ -105,10 +97,6 @@ commentsRouter.get('/post/:postId', optionalAuth, async (req, res) => {
       parentCommentId: row.parent_comment_id,
       text: row.text,
       createdAt: row.created_at,
-      likeCount: row.like_count,
-      collectCount: row.collect_count,
-      likedByMe: Boolean(row.liked_by_me),
-      collectedByMe: Boolean(row.collected_by_me),
       authorMeta: {
         ip: row.author_ip,
         location: {
@@ -209,64 +197,3 @@ commentsRouter.post('/post/:postId', requireAuth, async (req, res) => {
   return res.json({ id: commentId });
 });
 
-commentsRouter.post('/:id/like', requireAuth, async (req, res) => {
-  const commentId = Number(req.params.id);
-  if (!Number.isFinite(commentId)) return res.status(400).json({ error: 'Invalid comment id' });
-
-  const userId = Number((req as AuthedRequest).user.sub);
-  const db = await getDb();
-  const comment = await db.get<{ id: number; post_id: number }>('SELECT id, post_id FROM comments WHERE id = ?', commentId);
-  if (!comment) return res.status(404).json({ error: 'Comment not found' });
-  const post = await getPublishedPostForDiscussion(comment.post_id);
-  if (!post || post.status !== 'published') return res.status(403).json({ error: 'Discussion is unavailable until the post is published' });
-  if (!(await canViewPost(comment.post_id, userId))) return res.status(403).json({ error: 'Forbidden' });
-
-  await db.exec('BEGIN');
-  try {
-    const existing = await db.get('SELECT 1 FROM comment_likes WHERE user_id = ? AND comment_id = ?', userId, commentId);
-    if (existing) {
-      await db.run('DELETE FROM comment_likes WHERE user_id = ? AND comment_id = ?', userId, commentId);
-      await db.run('UPDATE comments SET like_count = MAX(like_count - 1, 0) WHERE id = ?', commentId);
-    } else {
-      await db.run('INSERT INTO comment_likes(user_id, comment_id) VALUES (?, ?)', userId, commentId);
-      await db.run('UPDATE comments SET like_count = like_count + 1 WHERE id = ?', commentId);
-    }
-    const row = await db.get<{ like_count: number }>('SELECT like_count FROM comments WHERE id = ?', commentId);
-    await db.exec('COMMIT');
-    return res.json({ liked: !existing, likeCount: row?.like_count ?? 0 });
-  } catch (error) {
-    await db.exec('ROLLBACK');
-    throw error;
-  }
-});
-
-commentsRouter.post('/:id/collect', requireAuth, async (req, res) => {
-  const commentId = Number(req.params.id);
-  if (!Number.isFinite(commentId)) return res.status(400).json({ error: 'Invalid comment id' });
-
-  const userId = Number((req as AuthedRequest).user.sub);
-  const db = await getDb();
-  const comment = await db.get<{ id: number; post_id: number }>('SELECT id, post_id FROM comments WHERE id = ?', commentId);
-  if (!comment) return res.status(404).json({ error: 'Comment not found' });
-  const post = await getPublishedPostForDiscussion(comment.post_id);
-  if (!post || post.status !== 'published') return res.status(403).json({ error: 'Discussion is unavailable until the post is published' });
-  if (!(await canViewPost(comment.post_id, userId))) return res.status(403).json({ error: 'Forbidden' });
-
-  await db.exec('BEGIN');
-  try {
-    const existing = await db.get('SELECT 1 FROM comment_collections WHERE user_id = ? AND comment_id = ?', userId, commentId);
-    if (existing) {
-      await db.run('DELETE FROM comment_collections WHERE user_id = ? AND comment_id = ?', userId, commentId);
-      await db.run('UPDATE comments SET collect_count = MAX(collect_count - 1, 0) WHERE id = ?', commentId);
-    } else {
-      await db.run('INSERT INTO comment_collections(user_id, comment_id) VALUES (?, ?)', userId, commentId);
-      await db.run('UPDATE comments SET collect_count = collect_count + 1 WHERE id = ?', commentId);
-    }
-    const row = await db.get<{ collect_count: number }>('SELECT collect_count FROM comments WHERE id = ?', commentId);
-    await db.exec('COMMIT');
-    return res.json({ collected: !existing, collectCount: row?.collect_count ?? 0 });
-  } catch (error) {
-    await db.exec('ROLLBACK');
-    throw error;
-  }
-});

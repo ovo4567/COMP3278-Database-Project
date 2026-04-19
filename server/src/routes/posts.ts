@@ -25,7 +25,6 @@ type PostRow = {
   published_at: string | null;
   like_count: number;
   collect_count: number;
-  view_count: number;
   created_at: string;
   updated_at: string | null;
   author_ip: string | null;
@@ -77,7 +76,6 @@ const formatPost = (row: PostRow) => ({
   publishedAt: row.published_at,
   likeCount: row.like_count,
   collectCount: row.collect_count,
-  viewCount: row.view_count,
   likedByMe: Boolean(row.liked_by_me),
   collectedByMe: Boolean(row.collected_by_me),
   createdAt: row.created_at,
@@ -192,7 +190,7 @@ postsRouter.get('/collections/mine', requireAuth, async (req, res) => {
     `SELECT
        pc.rowid AS collection_cursor,
        p.id, p.text, p.image_url, p.category, p.visibility, p.status,
-       p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count, p.view_count,
+      p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count,
        p.created_at, p.updated_at, p.author_ip, p.author_country, p.author_region, p.author_city,
        u.username, u.display_name, u.avatar_url,
        CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS liked_by_me,
@@ -243,7 +241,7 @@ postsRouter.get('/mine/manage', requireAuth, async (req, res) => {
   const rows = await db.all<PostRow[]>(
     `SELECT
        p.id, p.text, p.image_url, p.category, p.visibility, p.status,
-       p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count, p.view_count,
+      p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count,
        p.created_at, p.updated_at, p.author_ip, p.author_country, p.author_region, p.author_city,
        u.username, u.display_name, u.avatar_url,
        0 AS liked_by_me,
@@ -298,7 +296,7 @@ postsRouter.get('/feed', optionalAuth, async (req, res) => {
       ? scope === 'friends'
         ? `SELECT
              p.id, p.text, p.image_url, p.category, p.visibility, p.status,
-             p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count, p.view_count,
+             p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count,
              p.created_at, p.updated_at, p.author_ip, p.author_country, p.author_region, p.author_city,
              u.username, u.display_name, u.avatar_url,
              CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS liked_by_me,
@@ -326,7 +324,7 @@ postsRouter.get('/feed', optionalAuth, async (req, res) => {
            LIMIT ?`
         : `SELECT
              p.id, p.text, p.image_url, p.category, p.visibility, p.status,
-             p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count, p.view_count,
+             p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count,
              p.created_at, p.updated_at, p.author_ip, p.author_country, p.author_region, p.author_city,
              u.username, u.display_name, u.avatar_url,
              CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS liked_by_me,
@@ -355,7 +353,7 @@ postsRouter.get('/feed', optionalAuth, async (req, res) => {
            LIMIT ?`
       : `SELECT
            p.id, p.text, p.image_url, p.category, p.visibility, p.status,
-           p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count, p.view_count,
+           p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count,
            p.created_at, p.updated_at, p.author_ip, p.author_country, p.author_region, p.author_city,
            u.username, u.display_name, u.avatar_url,
            0 AS liked_by_me,
@@ -457,7 +455,7 @@ postsRouter.get('/user/:username', optionalAuth, async (req, res) => {
     maybeUserId
       ? `SELECT
            p.id, p.text, p.image_url, p.category, p.visibility, p.status,
-           p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count, p.view_count,
+           p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count,
            p.created_at, p.updated_at, p.author_ip, p.author_country, p.author_region, p.author_city,
            u.username, u.display_name, u.avatar_url,
            CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS liked_by_me,
@@ -474,7 +472,7 @@ postsRouter.get('/user/:username', optionalAuth, async (req, res) => {
          LIMIT ?`
       : `SELECT
            p.id, p.text, p.image_url, p.category, p.visibility, p.status,
-           p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count, p.view_count,
+         p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count,
            p.created_at, p.updated_at, p.author_ip, p.author_country, p.author_region, p.author_city,
            u.username, u.display_name, u.avatar_url,
            0 AS liked_by_me,
@@ -520,7 +518,7 @@ postsRouter.get('/:id/manage', requireAuth, async (req, res) => {
   const row = await db.get<PostRow>(
     `SELECT
        p.id, p.text, p.image_url, p.category, p.visibility, p.status,
-       p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count, p.view_count,
+      p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count,
        p.created_at, p.updated_at, p.author_ip, p.author_country, p.author_region, p.author_city,
        u.username, u.display_name, u.avatar_url,
        0 AS liked_by_me,
@@ -546,8 +544,8 @@ postsRouter.get('/:id/analytics', requireAuth, async (req, res) => {
   const days = parsed.data.days ?? 14;
   const db = await getDb();
 
-  const post = await db.get<{ id: number; user_id: number; text: string; status: PostStatus; view_count: number; like_count: number; collect_count: number }>(
-    'SELECT id, user_id, text, status, view_count, like_count, collect_count FROM posts WHERE id = ?',
+  const post = await db.get<{ id: number; user_id: number; text: string; status: PostStatus; like_count: number; collect_count: number }>(
+    'SELECT id, user_id, text, status, like_count, collect_count FROM posts WHERE id = ?',
     postId,
   );
   if (!post) return res.status(404).json({ error: 'Not found' });
@@ -559,7 +557,6 @@ postsRouter.get('/:id/analytics', requireAuth, async (req, res) => {
   const series = await db.all<
     {
       day: string;
-      views: number;
       likes: number;
       collects: number;
       comments: number;
@@ -572,7 +569,6 @@ postsRouter.get('/:id/analytics', requireAuth, async (req, res) => {
      )
      SELECT
        d AS day,
-       (SELECT COUNT(*) FROM post_views pv WHERE pv.post_id = ? AND date(pv.created_at) = d) AS views,
        (SELECT COUNT(*) FROM likes l WHERE l.post_id = ? AND date(l.created_at) = d) AS likes,
        (SELECT COUNT(*) FROM post_collections pc WHERE pc.post_id = ? AND date(pc.created_at) = d) AS collects,
        (SELECT COUNT(*) FROM comments c WHERE c.post_id = ? AND date(c.created_at) = d) AS comments
@@ -582,20 +578,17 @@ postsRouter.get('/:id/analytics', requireAuth, async (req, res) => {
     postId,
     postId,
     postId,
-    postId,
   );
 
   return res.json({
     post: { id: post.id, text: post.text, status: post.status },
     overview: {
-      views: post.view_count,
       likes: post.like_count,
       collects: post.collect_count,
       comments: commentCount,
     },
     series: series.map((row) => ({
       day: row.day,
-      views: row.views,
       likes: row.likes,
       collects: row.collects,
       comments: post.status === 'published' ? row.comments : 0,
@@ -609,13 +602,12 @@ postsRouter.get('/:id', optionalAuth, async (req, res) => {
   if (!Number.isFinite(postId)) return res.status(400).json({ error: 'Invalid post id' });
 
   const viewerId = (req as MaybeAuthedRequest).user?.sub ? Number((req as MaybeAuthedRequest).user?.sub) : null;
-  const viewerSessionId = (req as MaybeAuthedRequest).user?.sid ?? null;
   const db = await getDb();
 
   const row = await db.get<(PostRow & { user_id: number; comment_count: number })>(
     `SELECT
        p.id, p.user_id, p.text, p.image_url, p.category, p.visibility, p.status,
-       p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count, p.view_count,
+       p.scheduled_publish_at, p.published_at, p.like_count, p.collect_count,
        p.created_at, p.updated_at, p.author_ip, p.author_country, p.author_region, p.author_city,
        u.username, u.display_name, u.avatar_url,
        (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count,
@@ -635,17 +627,6 @@ postsRouter.get('/:id', optionalAuth, async (req, res) => {
   const canView =
     row.status === 'published' ? await canViewPostByOwner(viewerId, row.user_id, row.visibility) : viewerId === row.user_id;
   if (!canView) return res.status(403).json({ error: 'Forbidden' });
-
-  if (row.status === 'published') {
-    await db.run('UPDATE posts SET view_count = view_count + 1 WHERE id = ?', postId);
-    await db.run(
-      'INSERT INTO post_views(post_id, viewer_user_id, viewer_session) VALUES (?, ?, ?)',
-      postId,
-      viewerId,
-      viewerSessionId,
-    );
-    row.view_count += 1;
-  }
 
   return res.json({
     ...formatPost(row),

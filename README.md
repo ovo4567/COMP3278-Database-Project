@@ -3,18 +3,18 @@
 Demo-ready local social media app built with SQLite + Express + React + Tailwind.
 
 Core features:
-- Auth: signup/login with access + refresh tokens
+- Auth: signup/login with access tokens
 - Feed: public or friends-only posts with category filters
 - Posts: create, edit, delete, save draft, schedule publish, quick edit
 - Collections: collect/uncollect posts and view a personal collections page
-- Comments: replies, likes, collections, `@user` mentions, realtime notifications
+- Comments: replies, `@user` mentions, realtime notifications
 - Social: friendships + friends-only visibility
 - Profiles: editable profile, post stats, friend state
 - Notifications: in-app notifications + unread badge
 - Search: users + posts
 - Admin: analytics dashboard + read-only SQL console
 - Realtime: live updates for post/like/comment changes (Socket.IO)
-- Metadata: IP + formatted location shown on posts, comments, and device sessions
+- Metadata: IP + formatted location shown on posts and comments
 
 ## Prereqs
 - Node.js 18+ recommended
@@ -36,13 +36,13 @@ Possible native build requirement:
 2. Create env files:
    - `cp server/.env.example server/.env`
    - `cp client/.env.example client/.env`
-3. Seed demo data once for a fresh DB: `npm -w server run seed:test`
+3. Seed demo data once for a fresh DB: `npm -w server run seed:test -- --force`
 4. Start both apps: `npm run dev`
    - API: http://localhost:4000
    - Web: http://localhost:5173
 
 ## Docker
-1. Optional first-time seed: `docker compose run --rm server npm run seed:test`
+1. Optional first-time seed: `docker compose run --rm server npm run seed:test -- --force`
 2. Start containers: `docker compose up --build`
 3. Open: http://localhost:5173
 
@@ -85,28 +85,20 @@ Possible native build requirement:
 ## Database Schema
 Core tables:
 - `users`
-- `sessions`
 - `posts`
 - `likes`
 - `comments`
 - `friendships`
 - `notifications`
 - `post_collections`
-- `post_views`
-- `comment_likes`
-- `comment_collections`
 
 ### Relationship summary
-- `users` -> `sessions`: one-to-many through `sessions.user_id`
 - `users` -> `posts`: one-to-many through `posts.user_id`
 - `users` -> `comments`: one-to-many through `comments.user_id`
 - `posts` -> `comments`: one-to-many through `comments.post_id`
 - `users` <-> `posts` through `likes`: many-to-many
 - `users` <-> `posts` through `post_collections`: many-to-many
-- `users` <-> `comments` through `comment_likes`: many-to-many
-- `users` <-> `comments` through `comment_collections`: many-to-many
 - `users` <-> `users` through `friendships`: self-referencing many-to-many using a canonical user pair
-- `posts` -> `post_views`: one-to-many
 - `notifications` belongs to a recipient user and optionally an actor user
 
 ### Important schema notes
@@ -129,22 +121,18 @@ Core tables:
 
 ### Key columns by table
 - `users`: account/profile fields, `role`, `status_text`, `is_banned`
-- `sessions`: refresh-session state, device metadata, IP, country, region, city
 - `posts`: body, image URL, visibility, category, status, scheduling/publish timestamps, counters, IP/location metadata
-- `comments`: body, optional parent comment, like/collect counters, IP/location metadata
+- `comments`: body, optional parent comment, IP/location metadata
 - `notifications`: recipient, actor, type, optional polymorphic entity reference, read state
 
 ## Key endpoints
 - Auth:
   - `POST /api/auth/signup`
   - `POST /api/auth/login`
-  - `POST /api/auth/refresh`
   - `POST /api/auth/logout`
 - Me:
   - `GET /api/me`
   - `PATCH /api/me`
-  - `GET /api/me/devices`
-  - `DELETE /api/me/devices/:sessionId`
   - `DELETE /api/me`
 - Users:
   - `GET /api/users/:username`
@@ -164,8 +152,6 @@ Core tables:
 - Comments:
   - `GET /api/comments/post/:postId`
   - `POST /api/comments/post/:postId`
-  - `POST /api/comments/:id/like`
-  - `POST /api/comments/:id/collect`
 - Friends:
   - `GET /api/friends`
   - `GET /api/friends/requests`

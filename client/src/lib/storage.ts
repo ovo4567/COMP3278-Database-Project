@@ -1,5 +1,4 @@
 const ACCESS_TOKEN_KEY = 'accessToken';
-const REFRESH_TOKEN_KEY = 'refreshToken';
 
 export const AUTH_TOKEN_CHANGED_EVENT = 'auth:token-changed';
 
@@ -21,17 +20,7 @@ export const tokenStorage = {
     localStorage.removeItem(ACCESS_TOKEN_KEY);
     emitTokenChanged();
   },
-  getRefreshToken(): string | null {
-    return localStorage.getItem(REFRESH_TOKEN_KEY);
-  },
-  setRefreshToken(token: string) {
-    localStorage.setItem(REFRESH_TOKEN_KEY, token);
-  },
-  clearRefreshToken() {
-    localStorage.removeItem(REFRESH_TOKEN_KEY);
-  },
   clearAll() {
     this.clearAccessToken();
-    this.clearRefreshToken();
   },
 };

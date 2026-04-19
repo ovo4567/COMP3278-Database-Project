@@ -5,46 +5,28 @@ import { getDb } from '../db/sqlite.js';
 export type AuthedRequest = Request & { user: AccessTokenClaims };
 export type MaybeAuthedRequest = Request & { user?: AccessTokenClaims };
 
-type ActiveAccessTokenClaims = AccessTokenClaims & { sid: string };
-
 const authenticateAccessToken = async (
   token: string,
 ): Promise<
-  | { ok: true; claims: ActiveAccessTokenClaims }
+  | { ok: true; claims: AccessTokenClaims }
   | { ok: false; status: number; error: string }
 > => {
   try {
     const claims = verifyAccessToken(token);
-    const sessionId = claims.sid;
     const userId = Number(claims.sub);
 
-    if (!sessionId || !Number.isFinite(userId)) {
+    if (!Number.isFinite(userId)) {
       return { ok: false, status: 401, error: 'Invalid or expired token' };
     }
 
-    // Protected routes must honor device logout/session revocation immediately.
     const db = await getDb();
     const row = await db.get<{
-      session_id: string;
       username: string;
       role: 'user' | 'admin';
       is_banned: 0 | 1;
-      session_expired: 0 | 1;
-    }>(
-      `SELECT
-         s.id AS session_id,
-         u.username,
-         u.role,
-         u.is_banned,
-         (s.expires_at <= datetime('now')) AS session_expired
-       FROM sessions s
-       JOIN users u ON u.id = s.user_id
-       WHERE s.id = ? AND s.user_id = ?`,
-      sessionId,
-      userId,
-    );
+    }>('SELECT username, role, is_banned FROM users WHERE id = ?', userId);
 
-    if (!row || row.session_expired) {
+    if (!row) {
       return { ok: false, status: 401, error: 'Invalid or expired token' };
     }
 
@@ -58,7 +40,6 @@ const authenticateAccessToken = async (
         sub: String(userId),
         username: row.username,
         role: row.role,
-        sid: row.session_id,
       },
     };
   } catch {

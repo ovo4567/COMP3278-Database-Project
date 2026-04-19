@@ -16,20 +16,6 @@ CREATE TABLE IF NOT EXISTS users (
   is_banned INTEGER NOT NULL DEFAULT 0 CHECK (is_banned IN (0, 1))
 );
 
-CREATE TABLE IF NOT EXISTS sessions (
-  id TEXT PRIMARY KEY CHECK (length(trim(id)) > 0),
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  refresh_token_hash TEXT NOT NULL CHECK (length(refresh_token_hash) > 0),
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  last_used_at TEXT NOT NULL DEFAULT (datetime('now')),
-  expires_at TEXT NOT NULL,
-  user_agent TEXT,
-  ip TEXT,
-  country TEXT,
-  region TEXT,
-  city TEXT
-);
-
 CREATE TABLE IF NOT EXISTS friendships (
   user_id1 INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   user_id2 INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -56,7 +42,6 @@ CREATE TABLE IF NOT EXISTS posts (
   scheduled_publish_at TEXT,
   published_at TEXT,
   draft_saved_at TEXT,
-  view_count INTEGER NOT NULL DEFAULT 0 CHECK (view_count >= 0),
   collect_count INTEGER NOT NULL DEFAULT 0 CHECK (collect_count >= 0),
   author_ip TEXT,
   author_country TEXT,
@@ -79,8 +64,6 @@ CREATE TABLE IF NOT EXISTS comments (
   text TEXT NOT NULL CHECK (length(trim(text)) > 0),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   parent_comment_id INTEGER,
-  like_count INTEGER NOT NULL DEFAULT 0 CHECK (like_count >= 0),
-  collect_count INTEGER NOT NULL DEFAULT 0 CHECK (collect_count >= 0),
   author_ip TEXT,
   author_country TEXT,
   author_region TEXT,
@@ -107,20 +90,6 @@ CREATE TABLE IF NOT EXISTS post_collections (
   PRIMARY KEY (user_id, post_id)
 );
 
-CREATE TABLE IF NOT EXISTS comment_likes (
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  comment_id INTEGER NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (user_id, comment_id)
-);
-
-CREATE TABLE IF NOT EXISTS comment_collections (
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  comment_id INTEGER NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (user_id, comment_id)
-);
-
 CREATE TABLE IF NOT EXISTS notifications (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -136,18 +105,7 @@ CREATE TABLE IF NOT EXISTS notifications (
   )
 );
 
-CREATE TABLE IF NOT EXISTS post_views (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-  viewer_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  viewer_session TEXT REFERENCES sessions(id) ON DELETE SET NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
 CREATE INDEX IF NOT EXISTS idx_users_is_banned ON users(is_banned);
-
-CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
-CREATE INDEX IF NOT EXISTS idx_sessions_user_last_used ON sessions(user_id, last_used_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_friendships_user1_status ON friendships(user_id1, status);
 CREATE INDEX IF NOT EXISTS idx_friendships_user2_status ON friendships(user_id2, status);
@@ -171,11 +129,6 @@ CREATE INDEX IF NOT EXISTS idx_likes_post_created ON likes(post_id, created_at D
 CREATE INDEX IF NOT EXISTS idx_post_collections_user_created ON post_collections(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_post_collections_post_created ON post_collections(post_id, created_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_comment_likes_comment_id ON comment_likes(comment_id);
-CREATE INDEX IF NOT EXISTS idx_comment_collections_comment_id ON comment_collections(comment_id);
-
 CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, is_read);
 CREATE INDEX IF NOT EXISTS idx_notifications_user_id_cursor ON notifications(user_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_notifications_user_entity_read ON notifications(user_id, entity_type, entity_id, is_read, id DESC);
-
-CREATE INDEX IF NOT EXISTS idx_post_views_post_created ON post_views(post_id, created_at DESC);

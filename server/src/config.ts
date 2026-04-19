@@ -14,9 +14,7 @@ export const config = {
   clientOrigin: process.env.CLIENT_ORIGIN ?? 'http://localhost:5173',
 
   jwtAccessSecret: envOr('JWT_ACCESS_SECRET', 'dev_access_secret_change_me'),
-  jwtRefreshSecret: envOr('JWT_REFRESH_SECRET', 'dev_refresh_secret_change_me'),
-  accessTokenTtlSeconds: Number(process.env.ACCESS_TOKEN_TTL_SECONDS ?? 900),
-  refreshTokenTtlSeconds: Number(process.env.REFRESH_TOKEN_TTL_SECONDS ?? 60 * 60 * 24 * 30),
+  accessTokenTtlSeconds: Number(process.env.ACCESS_TOKEN_TTL_SECONDS ?? 60 * 60 * 24 * 30),
 
   sqlitePath: process.env.SQLITE_PATH ?? './data/app.db',
 

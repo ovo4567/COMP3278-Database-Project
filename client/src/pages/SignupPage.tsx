@@ -27,7 +27,6 @@ export function SignupPage(props: { onLogin: (user: User) => void }) {
         avatarUrl: avatarUrl.trim() ? avatarUrl.trim() : undefined,
       });
       tokenStorage.setAccessToken(res.accessToken);
-      tokenStorage.setRefreshToken(res.refreshToken);
       props.onLogin(res.user);
       navigate('/');
     } catch (err) {

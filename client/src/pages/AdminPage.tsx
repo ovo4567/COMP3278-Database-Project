@@ -126,9 +126,9 @@ const SUGGESTED_QUERIES = [
       'SELECT u.id, u.username, u.created_at FROM users u LEFT JOIN posts p ON p.user_id = u.id WHERE p.id IS NULL ORDER BY u.created_at DESC LIMIT 20',
   },
   {
-    label: 'Most liked comments',
+    label: 'Recent comments',
     query:
-      'SELECT c.id, c.text, c.like_count, u.username FROM comments c JOIN users u ON u.id = c.user_id ORDER BY c.like_count DESC LIMIT 10',
+      'SELECT c.id, c.text, u.username, c.created_at FROM comments c JOIN users u ON u.id = c.user_id ORDER BY c.created_at DESC LIMIT 10',
   },
 ] as const;
 

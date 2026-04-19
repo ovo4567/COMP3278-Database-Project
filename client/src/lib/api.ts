@@ -29,22 +29,6 @@ const asJson = async <T>(res: Response): Promise<T> => {
   return data as T;
 };
 
-const refreshAccessToken = async (): Promise<string | null> => {
-  const refreshToken = tokenStorage.getRefreshToken();
-  if (!refreshToken) return null;
-
-  const res = await fetch(`${config.apiBase}/api/auth/refresh`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ refreshToken }),
-  });
-
-  if (!res.ok) return null;
-  const data = (await res.json()) as { accessToken: string };
-  tokenStorage.setAccessToken(data.accessToken);
-  return data.accessToken;
-};
-
 export const apiFetch = async <T>(
   path: string,
   options: { method?: string; body?: unknown; auth?: boolean } = {},
@@ -55,8 +39,7 @@ export const apiFetch = async <T>(
   const headers: Record<string, string> = {};
   if (options.body !== undefined) headers['content-type'] = 'application/json';
   if (auth) {
-    let token = tokenStorage.getAccessToken();
-    if (!token && tokenStorage.getRefreshToken()) token = await refreshAccessToken();
+    const token = tokenStorage.getAccessToken();
     if (token) headers.authorization = `Bearer ${token}`;
   }
 
@@ -67,13 +50,9 @@ export const apiFetch = async <T>(
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
     });
 
-  let res = await doRequest();
-  if ((res.status === 401 || res.status === 403) && auth && tokenStorage.getRefreshToken()) {
-    const newToken = await refreshAccessToken();
-    if (newToken) {
-      headers.authorization = `Bearer ${newToken}`;
-      res = await doRequest();
-    }
+  const res = await doRequest();
+  if (auth && res.status === 401) {
+    tokenStorage.clearAccessToken();
   }
 
   return asJson<T>(res);
@@ -87,17 +66,16 @@ export const authApi = {
     status?: string;
     bio?: string;
     avatarUrl?: string;
-  }): Promise<{ user: User; accessToken: string; refreshToken: string }> {
+  }): Promise<{ user: User; accessToken: string }> {
     return apiFetch('/api/auth/signup', { method: 'POST', body: input });
   },
 
-  async login(input: { username: string; password: string }): Promise<{ user: User; accessToken: string; refreshToken: string }> {
+  async login(input: { username: string; password: string }): Promise<{ user: User; accessToken: string }> {
     return apiFetch('/api/auth/login', { method: 'POST', body: input });
   },
 
   async logout(): Promise<void> {
-    const refreshToken = tokenStorage.getRefreshToken();
-    if (refreshToken) await apiFetch('/api/auth/logout', { method: 'POST', body: { refreshToken } });
+    await apiFetch('/api/auth/logout', { method: 'POST' });
   },
 
   async me(): Promise<User> {
@@ -210,14 +188,6 @@ export const commentsApi = {
 
   async create(postId: number, input: { text: string; parentCommentId?: number | null }): Promise<{ id: number }> {
     return apiFetch(`/api/comments/post/${postId}`, { method: 'POST', body: input, auth: true });
-  },
-
-  async toggleLike(commentId: number): Promise<{ liked: boolean; likeCount: number }> {
-    return apiFetch(`/api/comments/${commentId}/like`, { method: 'POST', auth: true });
-  },
-
-  async toggleCollect(commentId: number): Promise<{ collected: boolean; collectCount: number }> {
-    return apiFetch(`/api/comments/${commentId}/collect`, { method: 'POST', auth: true });
   },
 };
 

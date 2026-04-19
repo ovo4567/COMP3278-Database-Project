@@ -53,7 +53,7 @@ Possible native build requirement:
 ## Seeding notes
 - `npm -w server run seed:test` loads the fixed demo dataset only when the database is empty.
 - To rebuild the demo data from scratch: `npm -w server run seed:test -- --force`
-- Seeded posts use fixed image URLs chosen to match categories.
+- Seeded posts use fixed, unique image URLs.
 - Seeded users may or may not have avatar photos.
 - The seeded post/comment content is fixed; timestamps and engagement data are only regenerated when you rebuild with `--force`.
 - The fixed dataset includes sample posts from 365, 30, and 7 days ago so the feed has older timeline examples.

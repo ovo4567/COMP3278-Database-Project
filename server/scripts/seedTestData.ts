@@ -116,19 +116,9 @@ const dateBetween = (start: Date, end: Date): Date => {
 
 const hoursAgo = (hours: number): Date => new Date(demoNow.getTime() - hours * 60 * 60 * 1000);
 
-const imageKeywordsForCategory: Record<PostCategory, string> = {
-  all: 'lifestyle,people',
-  food: 'food,restaurant',
-  studies: 'study,library',
-  jobs: 'office,work',
-  travel: 'travel,landscape',
-  others: 'street,city',
-};
-
 const imageUrlForCategory = (category: PostCategory, sequence: number): string => {
-  const keywords = imageKeywordsForCategory[category];
-  const lock = 1000 + sequence;
-  return `https://loremflickr.com/1200/800/${keywords}?lock=${lock}`;
+  const seed = `comp3278-${category}-${pad2(sequence + 1)}`;
+  return `https://picsum.photos/seed/${seed}/1200/800`;
 };
 
 const postFragmentsByCategory: Record<PostCategory, PostFragments> = {

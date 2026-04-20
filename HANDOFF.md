@@ -88,13 +88,13 @@ Core application tables:
 - `post_collections`
 
 ### Relationship summary
-- `users` -> `posts`: one-to-many via `posts.user_id`
-- `users` -> `comments`: one-to-many via `comments.user_id`
+- `users` -> `posts`: one-to-many via `posts.username`
+- `users` -> `comments`: one-to-many via `comments.username`
 - `posts` -> `comments`: one-to-many via `comments.post_id`
-- `users` <-> `posts` via `likes`: many-to-many
-- `users` <-> `posts` via `post_collections`: many-to-many
-- `users` <-> `users` via `friendships`: self-referencing many-to-many with canonical ordering
-- `notifications` belongs to a recipient user and optionally an actor user
+- `users` <-> `posts` via `likes`: many-to-many using `likes.username` and `likes.post_id`
+- `users` <-> `posts` via `post_collections`: many-to-many using `post_collections.username` and `post_collections.post_id`
+- `users` <-> `users` via `friendships`: self-referencing many-to-many with canonical ordering on `friendships.username1` and `friendships.username2`
+- `notifications` belongs to `notifications.username` and optionally links to `notifications.actor_username`
 
 ### Important schema notes
 - Usernames are case-insensitive at the DB level.

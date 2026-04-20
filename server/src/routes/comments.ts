@@ -32,7 +32,7 @@ const extractMentions = (text: string): string[] => {
 const getPublishedPostForDiscussion = async (postId: number) => {
   const db = await getDb();
   return db.get<{ id: number; user_id: string; status: 'draft' | 'scheduled' | 'published' }>(
-    'SELECT id, user_id, status FROM posts WHERE id = ?',
+    'SELECT id, username AS user_id, status FROM posts WHERE id = ?',
     postId,
   );
 };
@@ -71,7 +71,7 @@ commentsRouter.get('/post/:postId', optionalAuth, async (req, res) => {
        c.author_ip, c.author_country, c.author_region, c.author_city,
        u.username, u.display_name, u.avatar_url
      FROM comments c
-     JOIN users u ON u.username = c.user_id
+     JOIN users u ON u.username = c.username
      WHERE c.post_id = ?
        ${cursor ? 'AND c.id < ?' : ''}
      ORDER BY c.id DESC
@@ -119,43 +119,64 @@ commentsRouter.post('/post/:postId', requireAuth, async (req, res) => {
   const db = await getDb();
 
   const location = lookupLocation(req.ip);
-  const result = await db.run(
-    `INSERT INTO comments(
-       post_id, user_id, text,
-       author_ip, author_country, author_region, author_city
-     ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    postId,
-    username,
-    parsed.data.text.trim(),
-    req.ip ?? null,
-    location.country,
-    location.region,
-    location.city,
-  );
-  const commentId = result.lastID as number;
+  const notificationsToEmit: Array<{ userId: string; notification: NotificationPayload }> = [];
 
-  const mentionedUsernames = extractMentions(parsed.data.text);
-  if (mentionedUsernames.length > 0) {
-    const placeholders = mentionedUsernames.map(() => '?').join(', ');
-    const mentionedUsers = await db.all<{ username: string }[]>(
-      `SELECT username FROM users WHERE username IN (${placeholders})`,
-      ...mentionedUsernames,
+  await db.exec('BEGIN');
+  try {
+    const result = await db.run(
+      `INSERT INTO comments(
+         post_id, username, text,
+         author_ip, author_country, author_region, author_city
+       ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      postId,
+      username,
+      parsed.data.text.trim(),
+      req.ip ?? null,
+      location.country,
+      location.region,
+      location.city,
     );
+    const commentId = result.lastID as number;
 
-    for (const mentioned of mentionedUsers) {
-      if (mentioned.username === username) continue;
+    if (post.user_id !== username) {
       const notification = await createNotification({
-        userId: mentioned.username,
-        type: 'comment_mention',
-        actorUserId: username,
+        userId: post.user_id,
+        type: 'post_commented',
+        actorUsername: username,
         entityType: 'post',
         entityId: postId,
       });
-      if (notification) emitNotification(mentioned.username, notification);
+      if (notification) notificationsToEmit.push({ userId: post.user_id, notification });
     }
-  }
 
-  emitEvent({ type: 'comment_created', postId, commentId });
-  return res.json({ id: commentId });
+    const mentionedUsernames = extractMentions(parsed.data.text);
+    if (mentionedUsernames.length > 0) {
+      const placeholders = mentionedUsernames.map(() => '?').join(', ');
+      const mentionedUsers = await db.all<{ username: string }[]>(
+        `SELECT username FROM users WHERE username IN (${placeholders})`,
+        ...mentionedUsernames,
+      );
+
+      for (const mentioned of mentionedUsers) {
+        if (mentioned.username === username) continue;
+        const notification = await createNotification({
+          userId: mentioned.username,
+          type: 'comment_mention',
+          actorUsername: username,
+          entityType: 'post',
+          entityId: postId,
+        });
+        if (notification) notificationsToEmit.push({ userId: mentioned.username, notification });
+      }
+    }
+
+    await db.exec('COMMIT');
+    for (const entry of notificationsToEmit) emitNotification(entry.userId, entry.notification);
+    emitEvent({ type: 'comment_created', postId, commentId });
+    return res.json({ id: commentId });
+  } catch (error) {
+    await db.exec('ROLLBACK');
+    throw error;
+  }
 });
 

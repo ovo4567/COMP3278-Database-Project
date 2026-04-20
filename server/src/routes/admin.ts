@@ -125,12 +125,12 @@ adminRouter.get('/analytics', async (req, res) => {
        d AS day,
        (SELECT COUNT(*) FROM users u WHERE date(u.created_at) = d) AS new_users,
        (
-         SELECT COUNT(DISTINCT user_id) FROM (
-           SELECT user_id FROM posts p WHERE date(p.created_at) = d
+         SELECT COUNT(DISTINCT username) FROM (
+           SELECT username FROM posts p WHERE date(p.created_at) = d
            UNION
-           SELECT user_id FROM likes l WHERE date(l.created_at) = d
+           SELECT username FROM likes l WHERE date(l.created_at) = d
            UNION
-           SELECT user_id FROM comments c WHERE date(c.created_at) = d
+           SELECT username FROM comments c WHERE date(c.created_at) = d
          )
        ) AS active_users,
        (SELECT COUNT(*) FROM posts p WHERE date(p.created_at) = d) AS new_posts,
@@ -229,13 +229,13 @@ adminRouter.get('/analytics', async (req, res) => {
   const topUsersByFriends = hasFriendships
     ? await db.all<{ id: string; username: string; display_name: string | null; friends: number }[]>(
         `WITH edges AS (
-           SELECT user_id1 AS user_id FROM friendships WHERE status = 'accepted'
+           SELECT username1 AS username FROM friendships WHERE status = 'accepted'
            UNION ALL
-           SELECT user_id2 AS user_id FROM friendships WHERE status = 'accepted'
+           SELECT username2 AS username FROM friendships WHERE status = 'accepted'
          )
          SELECT u.username AS id, u.username, u.display_name, COUNT(*) AS friends
          FROM edges e
-         JOIN users u ON u.username = e.user_id
+         JOIN users u ON u.username = e.username
          GROUP BY u.username
          ORDER BY friends DESC
          LIMIT 10`,
@@ -251,7 +251,7 @@ adminRouter.get('/analytics', async (req, res) => {
   >(
     `SELECT u.username AS id, u.username, u.display_name, COUNT(*) AS posts
      FROM posts p
-     JOIN users u ON u.username = p.user_id
+     JOIN users u ON u.username = p.username
      GROUP BY u.username
      ORDER BY posts DESC
      LIMIT 10`,
@@ -263,7 +263,7 @@ adminRouter.get('/analytics', async (req, res) => {
     `SELECT u.username AS id, u.username, u.display_name, COUNT(*) AS likes_received
      FROM likes l
      JOIN posts p ON p.id = l.post_id
-     JOIN users u ON u.username = p.user_id
+     JOIN users u ON u.username = p.username
      GROUP BY u.username
      ORDER BY likes_received DESC
      LIMIT 10`,
@@ -274,7 +274,7 @@ adminRouter.get('/analytics', async (req, res) => {
   >(
     `SELECT u.username AS id, u.username, u.display_name, COUNT(*) AS comments_made
      FROM comments c
-     JOIN users u ON u.username = c.user_id
+     JOIN users u ON u.username = c.username
      GROUP BY u.username
      ORDER BY comments_made DESC
      LIMIT 10`,
@@ -286,7 +286,7 @@ adminRouter.get('/analytics', async (req, res) => {
     `SELECT p.id, p.text, COALESCE(pe.like_count, 0) AS like_count, p.created_at, u.username
      FROM posts p
      ${postEngagementJoin}
-     JOIN users u ON u.username = p.user_id
+     JOIN users u ON u.username = p.username
      ORDER BY like_count DESC, p.created_at DESC
      LIMIT 10`,
   );
@@ -296,7 +296,7 @@ adminRouter.get('/analytics', async (req, res) => {
   >(
     `SELECT p.id, p.text, COUNT(c.id) AS comment_count, p.created_at, u.username
      FROM posts p
-     JOIN users u ON u.username = p.user_id
+     JOIN users u ON u.username = p.username
      LEFT JOIN comments c ON c.post_id = p.id
      GROUP BY p.id
      ORDER BY comment_count DESC, p.created_at DESC
@@ -307,9 +307,9 @@ adminRouter.get('/analytics', async (req, res) => {
     { bucket: string; count: number }[]
   >(
     `WITH per_user AS (
-       SELECT u.username AS user_id, COALESCE(COUNT(p.id), 0) AS post_count
+       SELECT u.username AS username, COALESCE(COUNT(p.id), 0) AS post_count
        FROM users u
-       LEFT JOIN posts p ON p.user_id = u.username
+       LEFT JOIN posts p ON p.username = u.username
        GROUP BY u.username
      )
      SELECT

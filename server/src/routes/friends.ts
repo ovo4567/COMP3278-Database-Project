@@ -43,9 +43,9 @@ friendsRouter.get('/', async (req, res) => {
   >(
     `SELECT f.rowid AS cursor, u.username, u.display_name, u.avatar_url, u.status_text, f.created_at
      FROM friendships f
-     JOIN users u ON u.username = CASE WHEN f.user_id1 = ? THEN f.user_id2 ELSE f.user_id1 END
+     JOIN users u ON u.username = CASE WHEN f.username1 = ? THEN f.username2 ELSE f.username1 END
      WHERE f.status = 'accepted'
-       AND (f.user_id1 = ? OR f.user_id2 = ?)
+       AND (f.username1 = ? OR f.username2 = ?)
        AND (? IS NULL OR f.rowid < ?)
      ORDER BY f.rowid DESC
      LIMIT ?`,
@@ -96,13 +96,13 @@ friendsRouter.get('/requests', async (req, res) => {
   >(
     `SELECT
        f.rowid AS cursor,
-       CASE WHEN f.user_id1 = ? THEN f.user_id2 ELSE f.user_id1 END AS other_username,
+       CASE WHEN f.username1 = ? THEN f.username2 ELSE f.username1 END AS other_username,
        u.display_name, u.avatar_url, u.status_text,
        f.created_at, f.action_user_id
      FROM friendships f
-     JOIN users u ON u.username = CASE WHEN f.user_id1 = ? THEN f.user_id2 ELSE f.user_id1 END
+     JOIN users u ON u.username = CASE WHEN f.username1 = ? THEN f.username2 ELSE f.username1 END
      WHERE f.status = 'pending'
-       AND (f.user_id1 = ? OR f.user_id2 = ?)
+       AND (f.username1 = ? OR f.username2 = ?)
        AND f.action_user_id != ?
        AND (? IS NULL OR f.rowid < ?)
      ORDER BY f.rowid DESC
@@ -157,13 +157,13 @@ friendsRouter.get('/requests/sent', async (req, res) => {
   >(
     `SELECT
        f.rowid AS cursor,
-       CASE WHEN f.user_id1 = ? THEN f.user_id2 ELSE f.user_id1 END AS other_username,
+       CASE WHEN f.username1 = ? THEN f.username2 ELSE f.username1 END AS other_username,
        u.display_name, u.avatar_url, u.status_text,
        f.created_at
      FROM friendships f
-     JOIN users u ON u.username = CASE WHEN f.user_id1 = ? THEN f.user_id2 ELSE f.user_id1 END
+     JOIN users u ON u.username = CASE WHEN f.username1 = ? THEN f.username2 ELSE f.username1 END
      WHERE f.status = 'pending'
-       AND (f.user_id1 = ? OR f.user_id2 = ?)
+       AND (f.username1 = ? OR f.username2 = ?)
        AND f.action_user_id = ?
        AND (? IS NULL OR f.rowid < ?)
      ORDER BY f.rowid DESC
@@ -209,14 +209,14 @@ friendsRouter.post('/request/:userId', async (req, res) => {
   if (!target) return res.status(404).json({ error: 'User not found' });
 
   const existing = await db.get<{ status: 'pending' | 'accepted' | 'rejected'; action_user_id: string | null }>(
-    'SELECT status, action_user_id FROM friendships WHERE user_id1 = ? AND user_id2 = ?',
+    'SELECT status, action_user_id FROM friendships WHERE username1 = ? AND username2 = ?',
     user1,
     user2,
   );
 
   if (!existing) {
     await db.run(
-      "INSERT INTO friendships(user_id1, user_id2, status, action_user_id, created_at, updated_at) VALUES (?, ?, 'pending', ?, datetime('now'), datetime('now'))",
+      "INSERT INTO friendships(username1, username2, status, action_user_id, created_at, updated_at) VALUES (?, ?, 'pending', ?, datetime('now'), datetime('now'))",
       user1,
       user2,
       actorId,
@@ -225,7 +225,7 @@ friendsRouter.post('/request/:userId', async (req, res) => {
     const n = await createNotification({
       userId: targetUserId,
       type: 'friend_request_received',
-      actorUserId: actorId,
+      actorUsername: actorId,
       entityType: 'user',
       entityId: actorId,
     });
@@ -242,13 +242,13 @@ friendsRouter.post('/request/:userId', async (req, res) => {
     if (existing.action_user_id === actorId) return res.json({ ok: true, status: 'pending' });
 
     await db.run(
-      "UPDATE friendships SET status = 'accepted', updated_at = datetime('now') WHERE user_id1 = ? AND user_id2 = ?",
+      "UPDATE friendships SET status = 'accepted', updated_at = datetime('now') WHERE username1 = ? AND username2 = ?",
       user1,
       user2,
     );
 
     await db.run(
-      "UPDATE notifications SET is_read = 1 WHERE user_id = ? AND type = 'friend_request_received' AND actor_user_id = ? AND entity_type = 'user' AND entity_id = ?",
+      "UPDATE notifications SET is_read = 1 WHERE username = ? AND type = 'friend_request_received' AND actor_username = ? AND entity_type = 'user' AND entity_id = ?",
       actorId,
       targetUserId,
       targetUserId,
@@ -257,7 +257,7 @@ friendsRouter.post('/request/:userId', async (req, res) => {
     const n = await createNotification({
       userId: targetUserId,
       type: 'friend_request_accepted',
-      actorUserId: actorId,
+      actorUsername: actorId,
       entityType: 'user',
       entityId: actorId,
     });
@@ -267,7 +267,7 @@ friendsRouter.post('/request/:userId', async (req, res) => {
   }
 
   await db.run(
-    "UPDATE friendships SET status = 'pending', action_user_id = ?, updated_at = datetime('now') WHERE user_id1 = ? AND user_id2 = ?",
+    "UPDATE friendships SET status = 'pending', action_user_id = ?, updated_at = datetime('now') WHERE username1 = ? AND username2 = ?",
     actorId,
     user1,
     user2,
@@ -276,7 +276,7 @@ friendsRouter.post('/request/:userId', async (req, res) => {
   const n = await createNotification({
     userId: targetUserId,
     type: 'friend_request_received',
-    actorUserId: actorId,
+    actorUsername: actorId,
     entityType: 'user',
     entityId: actorId,
   });
@@ -295,7 +295,7 @@ friendsRouter.put('/request/:userId/accept', async (req, res) => {
   const db = await getDb();
 
   const row = await db.get<{ status: string; action_user_id: string | null }>(
-    'SELECT status, action_user_id FROM friendships WHERE user_id1 = ? AND user_id2 = ?',
+    'SELECT status, action_user_id FROM friendships WHERE username1 = ? AND username2 = ?',
     user1,
     user2,
   );
@@ -304,13 +304,13 @@ friendsRouter.put('/request/:userId/accept', async (req, res) => {
   if (row.action_user_id === actorId) return res.status(400).json({ error: 'Cannot accept your own request' });
 
   await db.run(
-    "UPDATE friendships SET status = 'accepted', updated_at = datetime('now') WHERE user_id1 = ? AND user_id2 = ?",
+    "UPDATE friendships SET status = 'accepted', updated_at = datetime('now') WHERE username1 = ? AND username2 = ?",
     user1,
     user2,
   );
 
   await db.run(
-    "UPDATE notifications SET is_read = 1 WHERE user_id = ? AND type = 'friend_request_received' AND actor_user_id = ? AND entity_type = 'user' AND entity_id = ?",
+    "UPDATE notifications SET is_read = 1 WHERE username = ? AND type = 'friend_request_received' AND actor_username = ? AND entity_type = 'user' AND entity_id = ?",
     actorId,
     otherId,
     otherId,
@@ -319,7 +319,7 @@ friendsRouter.put('/request/:userId/accept', async (req, res) => {
   const n = await createNotification({
     userId: otherId,
     type: 'friend_request_accepted',
-    actorUserId: actorId,
+    actorUsername: actorId,
     entityType: 'user',
     entityId: actorId,
   });
@@ -338,7 +338,7 @@ friendsRouter.put('/request/:userId/reject', async (req, res) => {
   const db = await getDb();
 
   const row = await db.get<{ status: string; action_user_id: string | null }>(
-    'SELECT status, action_user_id FROM friendships WHERE user_id1 = ? AND user_id2 = ?',
+    'SELECT status, action_user_id FROM friendships WHERE username1 = ? AND username2 = ?',
     user1,
     user2,
   );
@@ -347,7 +347,7 @@ friendsRouter.put('/request/:userId/reject', async (req, res) => {
   if (row.action_user_id === actorId) return res.status(400).json({ error: 'Cannot reject your own request' });
 
   await db.run(
-    "UPDATE friendships SET status = 'rejected', updated_at = datetime('now') WHERE user_id1 = ? AND user_id2 = ?",
+    "UPDATE friendships SET status = 'rejected', updated_at = datetime('now') WHERE username1 = ? AND username2 = ?",
     user1,
     user2,
   );
@@ -365,7 +365,7 @@ friendsRouter.delete('/request/:userId/cancel', async (req, res) => {
   const db = await getDb();
 
   const row = await db.get<{ status: string; action_user_id: string | null }>(
-    'SELECT status, action_user_id FROM friendships WHERE user_id1 = ? AND user_id2 = ?',
+    'SELECT status, action_user_id FROM friendships WHERE username1 = ? AND username2 = ?',
     user1,
     user2,
   );
@@ -373,7 +373,7 @@ friendsRouter.delete('/request/:userId/cancel', async (req, res) => {
   if (row.status !== 'pending') return res.status(400).json({ error: 'Not pending' });
   if (row.action_user_id !== actorId) return res.status(400).json({ error: 'Only sender can cancel' });
 
-  await db.run('DELETE FROM friendships WHERE user_id1 = ? AND user_id2 = ?', user1, user2);
+  await db.run('DELETE FROM friendships WHERE username1 = ? AND username2 = ?', user1, user2);
   return res.json({ ok: true });
 });
 
@@ -386,10 +386,10 @@ friendsRouter.delete('/:friendId', async (req, res) => {
   const { user1, user2 } = normalizePair(actorId, otherId);
   const db = await getDb();
 
-  const row = await db.get<{ status: string }>('SELECT status FROM friendships WHERE user_id1 = ? AND user_id2 = ?', user1, user2);
+  const row = await db.get<{ status: string }>('SELECT status FROM friendships WHERE username1 = ? AND username2 = ?', user1, user2);
   if (!row) return res.status(404).json({ error: 'Not friends' });
   if (row.status !== 'accepted') return res.status(400).json({ error: 'Not friends' });
 
-  await db.run('DELETE FROM friendships WHERE user_id1 = ? AND user_id2 = ?', user1, user2);
+  await db.run('DELETE FROM friendships WHERE username1 = ? AND username2 = ?', user1, user2);
   return res.json({ ok: true });
 });

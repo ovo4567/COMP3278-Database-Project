@@ -606,7 +606,7 @@ const seedPosts = async (users: SeededUser[]): Promise<SeededPost[]> => {
       const draftSavedAt = status === 'draft' ? new Date(createdAt.getTime() + 20 * 60 * 1000) : null;
       const result = await db.run(
         `INSERT INTO posts(
-          user_id, text, image_url, visibility, category, status, scheduled_publish_at, published_at, draft_saved_at,
+          username, text, image_url, visibility, category, status, scheduled_publish_at, published_at, draft_saved_at,
           author_ip, author_country, author_region, author_city,
           created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
@@ -689,7 +689,7 @@ const seedComments = async (users: SeededUser[], posts: SeededPost[]): Promise<S
 
       const result = await db.run(
         `INSERT INTO comments(
-          post_id, user_id, text,
+          post_id, username, text,
           author_ip, author_country, author_region, author_city, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         p.id,
@@ -722,7 +722,7 @@ const seedLikes = async (users: SeededUser[], posts: SeededPost[]) => {
       if (((userIndex + 1) * (postIndex + 3)) % 5 >= 2) continue;
       const createdAt = timeBetween(p.createdAt, demoNow, userIndex + postIndex + 1, users.length + posts.length + 1);
       await db.run(
-        'INSERT OR IGNORE INTO likes(user_id, post_id, created_at) VALUES (?, ?, ?)',
+        'INSERT OR IGNORE INTO likes(username, post_id, created_at) VALUES (?, ?, ?)',
         u.id,
         p.id,
         toSqliteDateTime(createdAt),
@@ -742,12 +742,58 @@ const seedPostCollections = async (users: SeededUser[], posts: SeededPost[]) => 
       if (((userIndex + 2) * (postIndex + 5)) % 7 >= 3) continue;
       const createdAt = timeBetween(post.createdAt, demoNow, userIndex + postIndex + 2, users.length + posts.length + 2);
       await db.run(
-        'INSERT OR IGNORE INTO post_collections(user_id, post_id, created_at) VALUES (?, ?, ?)',
+        'INSERT OR IGNORE INTO post_collections(username, post_id, created_at) VALUES (?, ?, ?)',
         user.id,
         post.id,
         toSqliteDateTime(createdAt),
       );
     }
+  }
+};
+
+const seedDemoOwnerNotifications = async (ownerUsername: string) => {
+  const db = await getDb();
+
+  const likeRows = await db.all<{ post_id: number; actor_username: string }[]>(
+    `SELECT p.id AS post_id, l.username AS actor_username
+     FROM posts p
+     JOIN likes l ON l.post_id = p.id
+     WHERE p.username = ?
+       AND l.username <> p.username
+     ORDER BY p.created_at ASC, l.created_at ASC
+     LIMIT 3`,
+    ownerUsername,
+  );
+
+  for (const row of likeRows) {
+    await createNotification({
+      userId: ownerUsername,
+      type: 'post_liked',
+      actorUsername: row.actor_username,
+      entityType: 'post',
+      entityId: row.post_id,
+    });
+  }
+
+  const commentRows = await db.all<{ post_id: number; actor_username: string }[]>(
+    `SELECT p.id AS post_id, c.username AS actor_username
+     FROM posts p
+     JOIN comments c ON c.post_id = p.id
+     WHERE p.username = ?
+       AND c.username <> p.username
+     ORDER BY p.created_at ASC, c.created_at ASC
+     LIMIT 3`,
+    ownerUsername,
+  );
+
+  for (const row of commentRows) {
+    await createNotification({
+      userId: ownerUsername,
+      type: 'post_commented',
+      actorUsername: row.actor_username,
+      entityType: 'post',
+      entityId: row.post_id,
+    });
   }
 };
 
@@ -777,7 +823,7 @@ const seedFriendships = async (users: SeededUser[]) => {
     const createdAt = toSqliteDateTime(daysAgo(45 - pairIndex * 4, pairIndex + 1));
 
     await db.run(
-      "INSERT OR IGNORE INTO friendships(user_id1, user_id2, status, action_user_id, created_at, updated_at) VALUES (?, ?, 'accepted', ?, ?, ?)",
+      "INSERT OR IGNORE INTO friendships(username1, username2, status, action_user_id, created_at, updated_at) VALUES (?, ?, 'accepted', ?, ?, ?)",
       user1,
       user2,
       actionUserId,
@@ -789,7 +835,7 @@ const seedFriendships = async (users: SeededUser[]) => {
     await createNotification({
       userId: receiverId,
       type: 'friend_request_accepted',
-      actorUserId: actionUserId,
+      actorUsername: actionUserId,
       entityType: 'user',
       entityId: actionUserId,
     });
@@ -814,7 +860,7 @@ const seedFriendships = async (users: SeededUser[]) => {
     const createdAt = toSqliteDateTime(daysAgo(12 - pairIndex, pairIndex));
 
     const result = await db.run(
-      "INSERT OR IGNORE INTO friendships(user_id1, user_id2, status, action_user_id, created_at, updated_at) VALUES (?, ?, 'pending', ?, ?, NULL)",
+      "INSERT OR IGNORE INTO friendships(username1, username2, status, action_user_id, created_at, updated_at) VALUES (?, ?, 'pending', ?, ?, NULL)",
       user1,
       user2,
       sender.id,
@@ -825,7 +871,7 @@ const seedFriendships = async (users: SeededUser[]) => {
       await createNotification({
         userId: receiver.id,
         type: 'friend_request_received',
-        actorUserId: sender.id,
+        actorUsername: sender.id,
         entityType: 'user',
         entityId: sender.id,
       });
@@ -868,6 +914,9 @@ const main = async () => {
 
   console.log('Creating collections...');
   await seedPostCollections(regularUsers, posts);
+
+  console.log('Creating demo notifications...');
+  await seedDemoOwnerNotifications('seed_user01');
 
   console.log('Done seeding test data.');
   console.log('Accounts:');

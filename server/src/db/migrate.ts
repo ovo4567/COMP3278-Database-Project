@@ -10,6 +10,24 @@ export const runMigrations = async (): Promise<void> => {
   const db = await getDb();
   await db.exec('DROP TABLE IF EXISTS comment_likes; DROP TABLE IF EXISTS comment_collections; DROP TABLE IF EXISTS post_views; DROP TABLE IF EXISTS sessions; DROP INDEX IF EXISTS idx_posts_like_count; DROP INDEX IF EXISTS idx_posts_feed_popular; DROP INDEX IF EXISTS idx_posts_collect_count; DROP INDEX IF EXISTS idx_comments_parent_comment_id;');
 
+  const renameColumnIfNeeded = async (table: string, from: string, to: string) => {
+    const columns = await db.all<{ name: string }[]>(`PRAGMA table_info(${table})`);
+    const hasFrom = columns.some((column) => column.name === from);
+    const hasTo = columns.some((column) => column.name === to);
+    if (hasFrom && !hasTo) {
+      await db.exec(`ALTER TABLE ${table} RENAME COLUMN ${from} TO ${to};`);
+    }
+  };
+
+  await renameColumnIfNeeded('friendships', 'user_id1', 'username1');
+  await renameColumnIfNeeded('friendships', 'user_id2', 'username2');
+  await renameColumnIfNeeded('posts', 'user_id', 'username');
+  await renameColumnIfNeeded('comments', 'user_id', 'username');
+  await renameColumnIfNeeded('likes', 'user_id', 'username');
+  await renameColumnIfNeeded('post_collections', 'user_id', 'username');
+  await renameColumnIfNeeded('notifications', 'user_id', 'username');
+  await renameColumnIfNeeded('notifications', 'actor_user_id', 'actor_username');
+
   const commentColumns = await db.all<{ name: string }[]>('PRAGMA table_info(comments)');
   const hasLegacyCommentReplies = commentColumns.some((column) => column.name === 'parent_comment_id');
   if (hasLegacyCommentReplies) {
@@ -20,7 +38,7 @@ export const runMigrations = async (): Promise<void> => {
         CREATE TABLE comments_new (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           post_id INTEGER NOT NULL,
-          user_id TEXT NOT NULL,
+          username TEXT NOT NULL,
           text TEXT NOT NULL CHECK (length(trim(text)) > 0),
           created_at TEXT NOT NULL DEFAULT (datetime('now')),
           author_ip TEXT,
@@ -28,14 +46,14 @@ export const runMigrations = async (): Promise<void> => {
           author_region TEXT,
           author_city TEXT,
           FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
-          FOREIGN KEY (user_id) REFERENCES users(username) ON DELETE CASCADE
+          FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
         );
 
         INSERT INTO comments_new (
-          id, post_id, user_id, text, created_at, author_ip, author_country, author_region, author_city
+          id, post_id, username, text, created_at, author_ip, author_country, author_region, author_city
         )
         SELECT
-          id, post_id, user_id, text, created_at, author_ip, author_country, author_region, author_city
+          id, post_id, username, text, created_at, author_ip, author_country, author_region, author_city
         FROM comments;
 
         DROP TABLE comments;
@@ -50,17 +68,24 @@ export const runMigrations = async (): Promise<void> => {
   }
 
   const notificationTable = await db.get<{ sql: string | null }>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'notifications'");
-  const hasLegacyCommentReplyNotifications = Boolean(notificationTable?.sql?.includes("'comment_reply'"));
-  if (hasLegacyCommentReplyNotifications) {
+  const notificationTableSql = notificationTable?.sql ?? '';
+  const hasExpectedNotificationTypes =
+    notificationTableSql.includes("'friend_request_received'") &&
+    notificationTableSql.includes("'friend_request_accepted'") &&
+    notificationTableSql.includes("'post_liked'") &&
+    notificationTableSql.includes("'post_commented'") &&
+    notificationTableSql.includes("'comment_mention'");
+  const hasLegacyCommentReplyNotifications = Boolean(notificationTableSql.includes("'comment_reply'"));
+  if (notificationTableSql && (!hasExpectedNotificationTypes || hasLegacyCommentReplyNotifications)) {
     await db.exec('PRAGMA foreign_keys = OFF;');
     try {
       await db.exec(`
         DROP TABLE IF EXISTS notifications_new;
         CREATE TABLE notifications_new (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
-          type TEXT NOT NULL CHECK (type IN ('friend_request_received', 'friend_request_accepted', 'comment_mention')),
-          actor_user_id TEXT REFERENCES users(username) ON DELETE SET NULL,
+          username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+          type TEXT NOT NULL CHECK (type IN ('friend_request_received', 'friend_request_accepted', 'post_liked', 'post_commented', 'comment_mention')),
+          actor_username TEXT REFERENCES users(username) ON DELETE SET NULL,
           entity_type TEXT,
           entity_id INTEGER,
           is_read INTEGER NOT NULL DEFAULT 0 CHECK (is_read IN (0, 1)),
@@ -72,10 +97,10 @@ export const runMigrations = async (): Promise<void> => {
         );
 
         INSERT INTO notifications_new (
-          id, user_id, type, actor_user_id, entity_type, entity_id, is_read, created_at
+          id, username, type, actor_username, entity_type, entity_id, is_read, created_at
         )
         SELECT
-          id, user_id, type, actor_user_id, entity_type, entity_id, is_read, created_at
+          id, username, type, actor_username, entity_type, entity_id, is_read, created_at
         FROM notifications
         WHERE type != 'comment_reply';
 
@@ -99,7 +124,7 @@ export const runMigrations = async (): Promise<void> => {
         DROP TABLE IF EXISTS posts_new;
         CREATE TABLE posts_new (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+          username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
           text TEXT NOT NULL DEFAULT '',
           image_url TEXT,
           created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -125,11 +150,11 @@ export const runMigrations = async (): Promise<void> => {
         );
 
         INSERT INTO posts_new (
-          id, user_id, text, image_url, created_at, updated_at, visibility, category, status,
+          id, username, text, image_url, created_at, updated_at, visibility, category, status,
           scheduled_publish_at, published_at, draft_saved_at, author_ip, author_country, author_region, author_city
         )
         SELECT
-          id, user_id, text, image_url, created_at, updated_at, visibility, category, status,
+          id, username, text, image_url, created_at, updated_at, visibility, category, status,
           scheduled_publish_at, published_at, draft_saved_at, author_ip, author_country, author_region, author_city
         FROM posts;
 

@@ -2,9 +2,10 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { getDb } from '../db/sqlite.js';
 import { optionalAuth, requireAuth, type AuthedRequest, type MaybeAuthedRequest } from '../middleware/auth.js';
-import { emitEvent } from '../realtime.js';
+import { emitEvent, emitToUserRoom } from '../realtime.js';
 import { areFriends, canViewPostByOwner, type PostVisibility } from '../social/visibility.js';
 import { postCategories, type PostCategory } from '../social/categories.js';
+import { createNotification, type NotificationPayload } from '../services/notifications.js';
 import { lookupLocation, formatLocation } from '../services/location.js';
 import { publishDueScheduledPosts } from '../services/publish.js';
 import { buildImageInputSchema } from '../validation/image.js';
@@ -13,6 +14,9 @@ export const postsRouter = Router();
 
 type PostStatus = 'draft' | 'scheduled' | 'published';
 const postImageInputSchema = buildImageInputSchema(1_500_000, 'Post image');
+const emitNotification = (userId: string, notification: NotificationPayload) => {
+  emitToUserRoom(userId, { type: 'notification_created', notification });
+};
 
 type PostRow = {
   id: number;
@@ -69,6 +73,7 @@ const postEngagementJoin = 'LEFT JOIN post_engagement pe ON pe.post_id = p.id';
 const postBaseColumns = `
        p.id, p.text, p.image_url, p.category, p.visibility, p.status,
        p.scheduled_publish_at, p.published_at,
+  p.username AS user_id,
        COALESCE(pe.like_count, 0) AS like_count,
        COALESCE(pe.collect_count, 0) AS collect_count,
        p.created_at, p.updated_at, p.author_ip, p.author_country, p.author_region, p.author_city,
@@ -184,7 +189,7 @@ const encodeFeedCursor = (sort: 'new' | 'popular', row: Pick<PostRow, 'created_a
 
 const assertPostEditor = async (postId: number, username: string, role: 'user' | 'admin') => {
   const db = await getDb();
-  const row = await db.get<{ user_id: string }>('SELECT user_id FROM posts WHERE id = ?', postId);
+  const row = await db.get<{ user_id: string }>('SELECT username AS user_id FROM posts WHERE id = ?', postId);
   if (!row) throw new Error('Not found');
   if (row.user_id !== username && role !== 'admin') throw new Error('Forbidden');
 };
@@ -200,31 +205,33 @@ postsRouter.get('/collections/mine', requireAuth, async (req, res) => {
     `SELECT
        pc.rowid AS collection_cursor,
 ${postBaseColumns},
-       CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS liked_by_me,
+       CASE WHEN l.username IS NULL THEN 0 ELSE 1 END AS liked_by_me,
        1 AS collected_by_me
      FROM post_collections pc
      JOIN posts p ON p.id = pc.post_id
-     JOIN users u ON u.username = p.user_id
+     JOIN users u ON u.username = p.username
      ${postEngagementJoin}
-     LEFT JOIN likes l ON l.post_id = p.id AND l.user_id = ?
-     WHERE pc.user_id = ?
+     LEFT JOIN likes l ON l.post_id = p.id AND l.username = ?
+     WHERE pc.username = ?
        AND p.status = 'published'
        AND (
          p.visibility = 'public'
-         OR p.user_id = ?
+         OR p.username = ?
          OR (
            p.visibility = 'friends'
            AND EXISTS (
              SELECT 1 FROM friendships f
              WHERE f.status = 'accepted'
-               AND f.user_id1 = CASE WHEN p.user_id < ? THEN p.user_id ELSE ? END
-               AND f.user_id2 = CASE WHEN p.user_id < ? THEN ? ELSE p.user_id END
+               AND f.username1 = CASE WHEN p.username < ? THEN p.username ELSE ? END
+               AND f.username2 = CASE WHEN p.username < ? THEN ? ELSE p.username END
            )
          )
        )
        AND (? IS NULL OR pc.rowid < ?)
      ORDER BY pc.rowid DESC
      LIMIT ?`,
+    username,
+    username,
     username,
     username,
     username,
@@ -252,9 +259,9 @@ ${postBaseColumns},
        0 AS liked_by_me,
        0 AS collected_by_me
      FROM posts p
-    JOIN users u ON u.username = p.user_id
+    JOIN users u ON u.username = p.username
     ${postEngagementJoin}
-    WHERE p.user_id = ?
+    WHERE p.username = ?
      ORDER BY
        CASE p.status
          WHEN 'draft' THEN 0
@@ -302,23 +309,23 @@ postsRouter.get('/feed', optionalAuth, async (req, res) => {
       ? scope === 'friends'
         ? `SELECT
 ${postBaseColumns},
-             CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS liked_by_me,
-             CASE WHEN pc.user_id IS NULL THEN 0 ELSE 1 END AS collected_by_me
+             CASE WHEN l.username IS NULL THEN 0 ELSE 1 END AS liked_by_me,
+             CASE WHEN pc.username IS NULL THEN 0 ELSE 1 END AS collected_by_me
            FROM posts p
-           JOIN users u ON u.username = p.user_id
+           JOIN users u ON u.username = p.username
            ${postEngagementJoin}
-           LEFT JOIN likes l ON l.post_id = p.id AND l.user_id = ?
-           LEFT JOIN post_collections pc ON pc.post_id = p.id AND pc.user_id = ?
+           LEFT JOIN likes l ON l.post_id = p.id AND l.username = ?
+           LEFT JOIN post_collections pc ON pc.post_id = p.id AND pc.username = ?
            WHERE p.status = 'published'
              AND (
-               p.user_id = ?
+               p.username = ?
                OR (
                  p.visibility IN ('public', 'friends')
                  AND EXISTS (
                    SELECT 1 FROM friendships f
                    WHERE f.status = 'accepted'
-                     AND f.user_id1 = CASE WHEN p.user_id < ? THEN p.user_id ELSE ? END
-                     AND f.user_id2 = CASE WHEN p.user_id < ? THEN ? ELSE p.user_id END
+                     AND f.username1 = CASE WHEN p.username < ? THEN p.username ELSE ? END
+                     AND f.username2 = CASE WHEN p.username < ? THEN ? ELSE p.username END
                  )
                )
              )
@@ -328,24 +335,24 @@ ${postBaseColumns},
            LIMIT ?`
         : `SELECT
 ${postBaseColumns},
-             CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS liked_by_me,
-             CASE WHEN pc.user_id IS NULL THEN 0 ELSE 1 END AS collected_by_me
+             CASE WHEN l.username IS NULL THEN 0 ELSE 1 END AS liked_by_me,
+             CASE WHEN pc.username IS NULL THEN 0 ELSE 1 END AS collected_by_me
            FROM posts p
-           JOIN users u ON u.username = p.user_id
+           JOIN users u ON u.username = p.username
            ${postEngagementJoin}
-           LEFT JOIN likes l ON l.post_id = p.id AND l.user_id = ?
-           LEFT JOIN post_collections pc ON pc.post_id = p.id AND pc.user_id = ?
+           LEFT JOIN likes l ON l.post_id = p.id AND l.username = ?
+           LEFT JOIN post_collections pc ON pc.post_id = p.id AND pc.username = ?
            WHERE p.status = 'published'
              AND (
                p.visibility = 'public'
-               OR p.user_id = ?
+               OR p.username = ?
                OR (
                  p.visibility = 'friends'
                  AND EXISTS (
                    SELECT 1 FROM friendships f
                    WHERE f.status = 'accepted'
-                     AND f.user_id1 = CASE WHEN p.user_id < ? THEN p.user_id ELSE ? END
-                     AND f.user_id2 = CASE WHEN p.user_id < ? THEN ? ELSE p.user_id END
+                     AND f.username1 = CASE WHEN p.username < ? THEN p.username ELSE ? END
+                     AND f.username2 = CASE WHEN p.username < ? THEN ? ELSE p.username END
                  )
                )
              )
@@ -358,7 +365,7 @@ ${postBaseColumns},
            0 AS liked_by_me,
            0 AS collected_by_me
          FROM posts p
-         JOIN users u ON u.username = p.user_id
+        JOIN users u ON u.username = p.username
          ${postEngagementJoin}
          WHERE p.status = 'published'
            AND p.visibility = 'public'
@@ -406,7 +413,7 @@ postsRouter.post('/', requireAuth, async (req, res) => {
   const db = await getDb();
   const result = await db.run(
     `INSERT INTO posts(
-       user_id, text, image_url, visibility, category, status,
+       username, text, image_url, visibility, category, status,
        scheduled_publish_at, published_at, draft_saved_at,
        author_ip, author_country, author_region, author_city
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -455,14 +462,14 @@ postsRouter.get('/user/:username', optionalAuth, async (req, res) => {
     maybeUsername
       ? `SELECT
     ${postBaseColumns},
-           CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS liked_by_me,
-           CASE WHEN pc.user_id IS NULL THEN 0 ELSE 1 END AS collected_by_me
+           CASE WHEN l.username IS NULL THEN 0 ELSE 1 END AS liked_by_me,
+           CASE WHEN pc.username IS NULL THEN 0 ELSE 1 END AS collected_by_me
          FROM posts p
-         JOIN users u ON u.username = p.user_id
+         JOIN users u ON u.username = p.username
          ${postEngagementJoin}
-         LEFT JOIN likes l ON l.post_id = p.id AND l.user_id = ?
-         LEFT JOIN post_collections pc ON pc.post_id = p.id AND pc.user_id = ?
-         WHERE p.user_id = ?
+         LEFT JOIN likes l ON l.post_id = p.id AND l.username = ?
+         LEFT JOIN post_collections pc ON pc.post_id = p.id AND pc.username = ?
+         WHERE p.username = ?
            AND p.status = 'published'
            ${visibilityWhere}
            ${cursor ? 'AND p.created_at < ?' : ''}
@@ -473,9 +480,9 @@ postsRouter.get('/user/:username', optionalAuth, async (req, res) => {
            0 AS liked_by_me,
            0 AS collected_by_me
          FROM posts p
-         JOIN users u ON u.username = p.user_id
+         JOIN users u ON u.username = p.username
          ${postEngagementJoin}
-         WHERE p.user_id = ?
+         WHERE p.username = ?
            AND p.status = 'published'
            ${visibilityWhere}
            ${cursor ? 'AND p.created_at < ?' : ''}
@@ -517,7 +524,7 @@ ${postBaseColumns},
        0 AS liked_by_me,
        0 AS collected_by_me
      FROM posts p
-     JOIN users u ON u.username = p.user_id
+     JOIN users u ON u.username = p.username
     ${postEngagementJoin}
      WHERE p.id = ?`,
     postId,
@@ -539,7 +546,7 @@ postsRouter.get('/:id/analytics', requireAuth, async (req, res) => {
   const db = await getDb();
 
   const post = await db.get<{ id: number; user_id: string; text: string; status: PostStatus; like_count: number; collect_count: number }>(
-    `SELECT p.id, p.user_id, p.text, p.status,
+    `SELECT p.id, p.username AS user_id, p.text, p.status,
             COALESCE(pe.like_count, 0) AS like_count,
             COALESCE(pe.collect_count, 0) AS collect_count
      FROM posts p
@@ -607,13 +614,13 @@ postsRouter.get('/:id', optionalAuth, async (req, res) => {
     `SELECT
 ${postBaseColumns},
        (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count,
-       CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS liked_by_me,
-       CASE WHEN pc.user_id IS NULL THEN 0 ELSE 1 END AS collected_by_me
+       CASE WHEN l.username IS NULL THEN 0 ELSE 1 END AS liked_by_me,
+       CASE WHEN pc.username IS NULL THEN 0 ELSE 1 END AS collected_by_me
      FROM posts p
-       JOIN users u ON u.username = p.user_id
+       JOIN users u ON u.username = p.username
        ${postEngagementJoin}
-     LEFT JOIN likes l ON l.post_id = p.id AND l.user_id = ?
-     LEFT JOIN post_collections pc ON pc.post_id = p.id AND pc.user_id = ?
+     LEFT JOIN likes l ON l.post_id = p.id AND l.username = ?
+     LEFT JOIN post_collections pc ON pc.post_id = p.id AND pc.username = ?
      WHERE p.id = ?`,
       viewerUsername,
       viewerUsername,
@@ -720,7 +727,7 @@ postsRouter.post('/:id/like', requireAuth, async (req, res) => {
   const username = String((req as AuthedRequest).user.sub).toLowerCase();
   const db = await getDb();
   const postOwner = await db.get<{ user_id: string; visibility: PostVisibility; status: PostStatus }>(
-    'SELECT user_id, visibility, status FROM posts WHERE id = ?',
+    'SELECT username AS user_id, visibility, status FROM posts WHERE id = ?',
     postId,
   );
   if (!postOwner) return res.status(404).json({ error: 'Post not found' });
@@ -730,16 +737,27 @@ postsRouter.post('/:id/like', requireAuth, async (req, res) => {
 
   await db.exec('BEGIN');
   try {
-    const existing = await db.get('SELECT 1 FROM likes WHERE user_id = ? AND post_id = ?', username, postId);
+    const existing = await db.get('SELECT 1 FROM likes WHERE username = ? AND post_id = ?', username, postId);
     if (existing) {
-      await db.run('DELETE FROM likes WHERE user_id = ? AND post_id = ?', username, postId);
+      await db.run('DELETE FROM likes WHERE username = ? AND post_id = ?', username, postId);
     } else {
-      await db.run('INSERT INTO likes(user_id, post_id) VALUES (?, ?)', username, postId);
+      await db.run('INSERT INTO likes(username, post_id) VALUES (?, ?)', username, postId);
     }
 
     const row = await db.get<{ like_count: number }>('SELECT like_count FROM post_engagement WHERE post_id = ?', postId);
+    let notification: NotificationPayload | null = null;
+    if (!existing && postOwner.user_id !== username) {
+      notification = await createNotification({
+        userId: postOwner.user_id,
+        type: 'post_liked',
+        actorUsername: username,
+        entityType: 'post',
+        entityId: postId,
+      });
+    }
     await db.exec('COMMIT');
     const liked = !existing;
+    if (notification) emitNotification(postOwner.user_id, notification);
     emitEvent({ type: 'post_liked', postId, likeCount: row?.like_count ?? 0, userId: username, liked });
     return res.json({ liked, likeCount: row?.like_count ?? 0 });
   } catch (error) {
@@ -756,7 +774,7 @@ postsRouter.post('/:id/collect', requireAuth, async (req, res) => {
   const username = String((req as AuthedRequest).user.sub).toLowerCase();
   const db = await getDb();
   const postOwner = await db.get<{ user_id: string; visibility: PostVisibility; status: PostStatus }>(
-    'SELECT user_id, visibility, status FROM posts WHERE id = ?',
+    'SELECT username AS user_id, visibility, status FROM posts WHERE id = ?',
     postId,
   );
   if (!postOwner) return res.status(404).json({ error: 'Post not found' });
@@ -766,11 +784,11 @@ postsRouter.post('/:id/collect', requireAuth, async (req, res) => {
 
   await db.exec('BEGIN');
   try {
-    const existing = await db.get('SELECT 1 FROM post_collections WHERE user_id = ? AND post_id = ?', username, postId);
+    const existing = await db.get('SELECT 1 FROM post_collections WHERE username = ? AND post_id = ?', username, postId);
     if (existing) {
-      await db.run('DELETE FROM post_collections WHERE user_id = ? AND post_id = ?', username, postId);
+      await db.run('DELETE FROM post_collections WHERE username = ? AND post_id = ?', username, postId);
     } else {
-      await db.run('INSERT INTO post_collections(user_id, post_id) VALUES (?, ?)', username, postId);
+      await db.run('INSERT INTO post_collections(username, post_id) VALUES (?, ?)', username, postId);
     }
 
     const row = await db.get<{ collect_count: number }>('SELECT collect_count FROM post_engagement WHERE post_id = ?', postId);

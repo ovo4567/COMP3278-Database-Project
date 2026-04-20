@@ -33,7 +33,7 @@ notificationsRouter.get('/', async (req, res) => {
 notificationsRouter.get('/unread-count', async (req, res) => {
   const userId = String((req as AuthedRequest).user.sub).toLowerCase();
   const db = await getDb();
-  const row = await db.get<{ c: number }>('SELECT COUNT(*) AS c FROM notifications WHERE user_id = ? AND is_read = 0', userId);
+  const row = await db.get<{ c: number }>('SELECT COUNT(*) AS c FROM notifications WHERE username = ? AND is_read = 0', userId);
   return res.json({ count: row?.c ?? 0 });
 });
 
@@ -55,7 +55,7 @@ notificationsRouter.post('/read', async (req, res) => {
   const db = await getDb();
   const placeholders = parsed.data.ids.map(() => '?').join(', ');
   await db.run(
-    `UPDATE notifications SET is_read = 1 WHERE user_id = ? AND id IN (${placeholders})`,
+    `UPDATE notifications SET is_read = 1 WHERE username = ? AND id IN (${placeholders})`,
     userId,
     ...parsed.data.ids,
   );
@@ -66,7 +66,7 @@ notificationsRouter.post('/read', async (req, res) => {
 notificationsRouter.post('/read-all', async (req, res) => {
   const userId = String((req as AuthedRequest).user.sub).toLowerCase();
   const db = await getDb();
-  await db.run('UPDATE notifications SET is_read = 1 WHERE user_id = ?', userId);
+  await db.run('UPDATE notifications SET is_read = 1 WHERE username = ?', userId);
   return res.json({ ok: true });
 });
 
@@ -82,7 +82,7 @@ notificationsRouter.post('/read-by-entity', async (req, res) => {
     await db.run(
       `UPDATE notifications
        SET is_read = 1
-       WHERE user_id = ?
+       WHERE username = ?
          AND is_read = 0
          AND entity_type = ?
          AND entity_id = ?
@@ -96,7 +96,7 @@ notificationsRouter.post('/read-by-entity', async (req, res) => {
     await db.run(
       `UPDATE notifications
        SET is_read = 1
-       WHERE user_id = ?
+       WHERE username = ?
          AND is_read = 0
          AND entity_type = ?
          AND entity_id = ?`,

@@ -16,20 +16,20 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS friendships (
-  user_id1 TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
-  user_id2 TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+  username1 TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+  username2 TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'rejected')),
   action_user_id TEXT REFERENCES users(username) ON DELETE SET NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT,
-  PRIMARY KEY (user_id1, user_id2),
-  CHECK (user_id1 < user_id2),
-  CHECK (action_user_id IS NULL OR action_user_id IN (user_id1, user_id2))
+  PRIMARY KEY (username1, username2),
+  CHECK (username1 < username2),
+  CHECK (action_user_id IS NULL OR action_user_id IN (username1, username2))
 );
 
 CREATE TABLE IF NOT EXISTS posts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+  username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
   text TEXT NOT NULL DEFAULT '',
   image_url TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS posts (
 CREATE TABLE IF NOT EXISTS comments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   post_id INTEGER NOT NULL,
-  user_id TEXT NOT NULL,
+  username TEXT NOT NULL,
   text TEXT NOT NULL CHECK (length(trim(text)) > 0),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   author_ip TEXT,
@@ -65,23 +65,23 @@ CREATE TABLE IF NOT EXISTS comments (
   author_region TEXT,
   author_city TEXT,
   FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
-  FOREIGN KEY (user_id) REFERENCES users(username) ON DELETE CASCADE
+  FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS likes (
-  user_id TEXT NOT NULL,
+  username TEXT NOT NULL,
   post_id INTEGER NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (user_id, post_id),
-  FOREIGN KEY (user_id) REFERENCES users(username) ON DELETE CASCADE,
+  PRIMARY KEY (username, post_id),
+  FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE,
   FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS post_collections (
-  user_id TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+  username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
   post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (user_id, post_id)
+  PRIMARY KEY (username, post_id)
 );
 
 CREATE VIEW IF NOT EXISTS post_engagement AS
@@ -93,9 +93,9 @@ FROM posts p;
 
 CREATE TABLE IF NOT EXISTS notifications (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
-  type TEXT NOT NULL CHECK (type IN ('friend_request_received', 'friend_request_accepted', 'comment_mention')),
-  actor_user_id TEXT REFERENCES users(username) ON DELETE SET NULL,
+  username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+  type TEXT NOT NULL CHECK (type IN ('friend_request_received', 'friend_request_accepted', 'post_liked', 'post_commented', 'comment_mention')),
+  actor_username TEXT REFERENCES users(username) ON DELETE SET NULL,
   entity_type TEXT,
   entity_id INTEGER,
   is_read INTEGER NOT NULL DEFAULT 0 CHECK (is_read IN (0, 1)),
@@ -108,11 +108,11 @@ CREATE TABLE IF NOT EXISTS notifications (
 
 CREATE INDEX IF NOT EXISTS idx_users_is_banned ON users(is_banned);
 
-CREATE INDEX IF NOT EXISTS idx_friendships_user1_status ON friendships(user_id1, status);
-CREATE INDEX IF NOT EXISTS idx_friendships_user2_status ON friendships(user_id2, status);
+CREATE INDEX IF NOT EXISTS idx_friendships_user1_status ON friendships(username1, status);
+CREATE INDEX IF NOT EXISTS idx_friendships_user2_status ON friendships(username2, status);
 
 CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_posts_user_status_created ON posts(user_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_posts_user_status_created ON posts(username, status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_status_published ON posts(status, published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_scheduled_publish ON posts(status, scheduled_publish_at);
 CREATE INDEX IF NOT EXISTS idx_posts_feed_new ON posts(status, visibility, category, created_at DESC);
@@ -123,9 +123,9 @@ CREATE INDEX IF NOT EXISTS idx_comments_created_at ON comments(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_likes_post_id ON likes(post_id);
 CREATE INDEX IF NOT EXISTS idx_likes_post_created ON likes(post_id, created_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_post_collections_user_created ON post_collections(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_post_collections_user_created ON post_collections(username, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_post_collections_post_created ON post_collections(post_id, created_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, is_read);
-CREATE INDEX IF NOT EXISTS idx_notifications_user_id_cursor ON notifications(user_id, id DESC);
-CREATE INDEX IF NOT EXISTS idx_notifications_user_entity_read ON notifications(user_id, entity_type, entity_id, is_read, id DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(username, is_read);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id_cursor ON notifications(username, id DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_entity_read ON notifications(username, entity_type, entity_id, is_read, id DESC);

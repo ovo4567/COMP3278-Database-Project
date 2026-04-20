@@ -108,7 +108,10 @@ export function NotificationsPage(props: {
     const actor = n.actorUser?.username ? `@${n.actorUser.username}` : 'Someone';
     if (n.type === 'friend_request_received') return `Friend request from ${actor}`;
     if (n.type === 'friend_request_accepted') return `${actor} accepted your friend request`;
+    if (n.type === 'post_liked') return `${actor} liked your post`;
+    if (n.type === 'post_commented') return `${actor} commented on your post`;
     if (n.type === 'message_received') return `New message`;
+    if (n.type === 'comment_mention') return `${actor} mentioned you in a comment`;
     return n.type;
   };
 

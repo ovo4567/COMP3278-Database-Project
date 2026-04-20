@@ -23,7 +23,7 @@ usersRouter.get('/:username', optionalAuth, async (req, res) => {
     friend_count: number;
   }>(
         `SELECT u.username, u.role, u.display_name, u.bio, u.avatar_url, u.status_text, u.created_at,
-          (SELECT COUNT(*) FROM friendships f WHERE f.status = 'accepted' AND (f.user_id1 = u.username OR f.user_id2 = u.username)) AS friend_count
+          (SELECT COUNT(*) FROM friendships f WHERE f.status = 'accepted' AND (f.username1 = u.username OR f.username2 = u.username)) AS friend_count
      FROM users u
          WHERE u.username = ?`,
     username,
@@ -39,7 +39,7 @@ usersRouter.get('/:username', optionalAuth, async (req, res) => {
     const low = viewerUsername < user.username ? viewerUsername : user.username;
     const high = viewerUsername < user.username ? user.username : viewerUsername;
     const row = await db.get<{ status: 'pending' | 'accepted' | 'rejected'; action_user_id: string | null }>(
-      'SELECT status, action_user_id FROM friendships WHERE user_id1 = ? AND user_id2 = ?',
+      'SELECT status, action_user_id FROM friendships WHERE username1 = ? AND username2 = ?',
       low,
       high,
     );
@@ -59,11 +59,11 @@ usersRouter.get('/:username', optionalAuth, async (req, res) => {
 
   const stats = await db.get<{ post_count: number; likes_received: number }>(
     `SELECT
-       (SELECT COUNT(*) FROM posts p WHERE p.user_id = ? ${visiblePostsWhere}) AS post_count,
+       (SELECT COUNT(*) FROM posts p WHERE p.username = ? ${visiblePostsWhere}) AS post_count,
        (SELECT COUNT(*)
         FROM likes l
         JOIN posts p2 ON p2.id = l.post_id
-        WHERE p2.user_id = ? ${visibleLikesWhere}) AS likes_received`,
+        WHERE p2.username = ? ${visibleLikesWhere}) AS likes_received`,
     user.username,
     user.username,
   );

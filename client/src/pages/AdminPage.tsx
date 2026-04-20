@@ -49,7 +49,7 @@ const QUICK_QUERY_GROUPS = [
       {
         label: '🔥 7-day active users',
         query:
-          "SELECT COUNT(DISTINCT u.id) AS active_users FROM users u LEFT JOIN posts p ON u.id = p.user_id AND DATE(p.created_at) >= DATE('now', '-7 days') LEFT JOIN comments c ON u.id = c.user_id AND DATE(c.created_at) >= DATE('now', '-7 days') WHERE p.id IS NOT NULL OR c.id IS NOT NULL",
+          "SELECT COUNT(DISTINCT u.username) AS active_users FROM users u LEFT JOIN posts p ON u.username = p.username AND DATE(p.created_at) >= DATE('now', '-7 days') LEFT JOIN comments c ON u.username = c.username AND DATE(c.created_at) >= DATE('now', '-7 days') WHERE p.id IS NOT NULL OR c.id IS NOT NULL",
       },
       {
         label: '🆕 Latest 10 users',
@@ -67,7 +67,7 @@ const QUICK_QUERY_GROUPS = [
       {
         label: '🏆 Most active users',
         query:
-          'SELECT username, COUNT(*) as post_count FROM users u JOIN posts p ON u.id = p.user_id GROUP BY u.id ORDER BY post_count DESC LIMIT 5',
+          'SELECT username, COUNT(*) as post_count FROM users u JOIN posts p ON u.username = p.username GROUP BY u.username ORDER BY post_count DESC LIMIT 5',
       },
       {
         label: '❤️ Most liked posts',
@@ -81,7 +81,7 @@ const QUICK_QUERY_GROUPS = [
       {
         label: '👥 Most friends',
         query:
-          "SELECT u.username, COUNT(f.user_id2) AS friend_count FROM users u LEFT JOIN friendships f ON (u.id = f.user_id1 OR u.id = f.user_id2) AND f.status = 'accepted' GROUP BY u.id ORDER BY friend_count DESC LIMIT 5",
+          "SELECT u.username, COUNT(f.username2) AS friend_count FROM users u LEFT JOIN friendships f ON (u.username = f.username1 OR u.username = f.username2) AND f.status = 'accepted' GROUP BY u.username ORDER BY friend_count DESC LIMIT 5",
       },
     ],
   },
@@ -123,12 +123,12 @@ const SUGGESTED_QUERIES = [
   {
     label: 'Users with no posts',
     query:
-      'SELECT u.id, u.username, u.created_at FROM users u LEFT JOIN posts p ON p.user_id = u.id WHERE p.id IS NULL ORDER BY u.created_at DESC LIMIT 20',
+      'SELECT u.username, u.created_at FROM users u LEFT JOIN posts p ON p.username = u.username WHERE p.id IS NULL ORDER BY u.created_at DESC LIMIT 20',
   },
   {
     label: 'Recent comments',
     query:
-      'SELECT c.id, c.text, u.username, c.created_at FROM comments c JOIN users u ON u.id = c.user_id ORDER BY c.created_at DESC LIMIT 10',
+      'SELECT c.id, c.text, u.username, c.created_at FROM comments c JOIN users u ON u.username = c.username ORDER BY c.created_at DESC LIMIT 10',
   },
 ] as const;
 

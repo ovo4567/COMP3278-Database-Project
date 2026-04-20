@@ -78,24 +78,24 @@ searchRouter.get('/', optionalAuth, async (req, res) => {
     maybeUsername
       ? `SELECT
 ${postBaseColumns},
-           CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS liked_by_me,
-           CASE WHEN pc.user_id IS NULL THEN 0 ELSE 1 END AS collected_by_me
+             CASE WHEN l.username IS NULL THEN 0 ELSE 1 END AS liked_by_me,
+             CASE WHEN pc.username IS NULL THEN 0 ELSE 1 END AS collected_by_me
          FROM posts p
-         JOIN users u ON u.username = p.user_id
+           JOIN users u ON u.username = p.username
          ${postEngagementJoin}
-         LEFT JOIN likes l ON l.post_id = p.id AND l.user_id = ?
-         LEFT JOIN post_collections pc ON pc.post_id = p.id AND pc.user_id = ?
+           LEFT JOIN likes l ON l.post_id = p.id AND l.username = ?
+           LEFT JOIN post_collections pc ON pc.post_id = p.id AND pc.username = ?
          WHERE p.status = 'published'
            AND (
              p.visibility = 'public'
-             OR p.user_id = ?
+               OR p.username = ?
              OR (
                p.visibility = 'friends'
                AND EXISTS (
                  SELECT 1 FROM friendships f
                  WHERE f.status = 'accepted'
-                   AND f.user_id1 = CASE WHEN p.user_id < ? THEN p.user_id ELSE ? END
-                   AND f.user_id2 = CASE WHEN p.user_id < ? THEN ? ELSE p.user_id END
+                     AND f.username1 = CASE WHEN p.username < ? THEN p.username ELSE ? END
+                     AND f.username2 = CASE WHEN p.username < ? THEN ? ELSE p.username END
                )
              )
            )
@@ -107,7 +107,7 @@ ${postBaseColumns},
            0 AS liked_by_me,
            0 AS collected_by_me
          FROM posts p
-         JOIN users u ON u.username = p.user_id
+           JOIN users u ON u.username = p.username
          ${postEngagementJoin}
          WHERE p.status = 'published'
            AND p.visibility = 'public'

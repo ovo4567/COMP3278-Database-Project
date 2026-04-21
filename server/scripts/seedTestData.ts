@@ -15,7 +15,6 @@ import { runMigrations } from '../src/db/migrate.js';
 import { getDb } from '../src/db/sqlite.js';
 import { hashPassword } from '../src/auth/passwords.js';
 import { createNotification } from '../src/services/notifications.js';
-import { lookupLocation } from '../src/services/location.js';
 import { config } from '../src/config.js';
 import type { PostCategory } from '../src/social/categories.js';
 
@@ -357,30 +356,6 @@ const buildPostText = (category: PostCategory, userIndex: number, sequence: numb
 
 const normalizePair = (a: string, b: string) => (a < b ? { user1: a, user2: b } : { user1: b, user2: a });
 
-const seedIps = [
-  '127.0.0.1',
-  '203.0.113.21',
-  '198.51.100.34',
-  '203.0.113.88',
-  '198.51.100.109',
-  '203.0.113.144',
-  '198.51.100.171',
-  '203.0.113.203',
-  '198.51.100.230',
-  '203.0.113.245',
-] as const;
-
-const networkForUserIndex = (userIndex: number) => {
-  const ip = seedIps[userIndex % seedIps.length]!;
-  const location = lookupLocation(ip);
-  return {
-    ip,
-    country: location.country,
-    region: location.region,
-    city: location.city,
-  };
-};
-
 const resetDatabaseInPlace = async (force: boolean) => {
   if (!force) return;
 
@@ -599,7 +574,6 @@ const seedPosts = async (users: SeededUser[]): Promise<SeededPost[]> => {
       const createdAt = specialAges[key] !== undefined ? daysAgo(specialAges[key]!) : hoursAgo(userIndex * postsPerUser * 3 + i * 3 + 2);
       const hasImage = sequence % 3 !== 1;
       const imageUrl = hasImage ? imageUrlForCategory(category, sequence) : null;
-      const network = networkForUserIndex(userIndex);
       const status = i === postsPerUser - 1 ? (userIndex % 2 === 0 ? 'draft' : 'scheduled') : 'published';
       const publishedAt = status === 'published' ? createdAt : null;
       const scheduledPublishAt = status === 'scheduled' ? new Date(Date.now() + (userIndex + 6) * 60 * 60 * 1000) : null;
@@ -607,9 +581,8 @@ const seedPosts = async (users: SeededUser[]): Promise<SeededPost[]> => {
       const result = await db.run(
         `INSERT INTO posts(
           username, text, image_url, visibility, category, status, scheduled_publish_at, published_at, draft_saved_at,
-          author_ip, author_country, author_region, author_city,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
         u.id,
         text,
         imageUrl,
@@ -619,10 +592,6 @@ const seedPosts = async (users: SeededUser[]): Promise<SeededPost[]> => {
         scheduledPublishAt ? toSqliteDateTime(scheduledPublishAt) : null,
         publishedAt ? toSqliteDateTime(publishedAt) : null,
         draftSavedAt ? toSqliteDateTime(draftSavedAt) : null,
-        network.ip,
-        network.country,
-        network.region,
-        network.city,
         toSqliteDateTime(createdAt),
       );
 
@@ -684,21 +653,14 @@ const seedComments = async (users: SeededUser[], posts: SeededPost[]): Promise<S
     for (let i = 0; i < commentPlan.length; i++) {
       const plan = commentPlan[i]!;
       const createdAt = new Date(p.createdAt.getTime() + (i + 1) * 35 * 60 * 1000);
-      const commenterIndex = users.findIndex((u) => u.id === plan.commenter.id);
-      const network = networkForUserIndex(Math.max(commenterIndex, 0));
 
       const result = await db.run(
         `INSERT INTO comments(
-          post_id, username, text,
-          author_ip, author_country, author_region, author_city, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          post_id, username, text, created_at
+        ) VALUES (?, ?, ?, ?)`,
         p.id,
         plan.commenter.id,
         plan.text,
-        network.ip,
-        network.country,
-        network.region,
-        network.city,
         toSqliteDateTime(createdAt),
       );
 

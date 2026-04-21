@@ -6,7 +6,6 @@ export type NotificationPayload = {
   createdAt: string;
   isRead: boolean;
   actorUser?: { id: string; username: string; displayName: string | null; avatarUrl: string | null } | null;
-  entity?: { type: string; id: string | number } | null;
 };
 
 type NotificationJoinedRow = {
@@ -15,8 +14,6 @@ type NotificationJoinedRow = {
   created_at: string;
   is_read: 0 | 1;
   actor_username: string | null;
-  entity_type: string | null;
-  entity_id: number | null;
   actor_display_name: string | null;
   actor_avatar_url: string | null;
 };
@@ -37,14 +34,13 @@ const mapJoinedRow = (row: NotificationJoinedRow): NotificationPayload => {
     createdAt: row.created_at,
     isRead: Boolean(row.is_read),
     actorUser: actor,
-    entity: row.entity_type && row.entity_id ? { type: row.entity_type, id: row.entity_id } : null,
   };
 };
 
 export const getNotificationById = async (id: number): Promise<NotificationPayload | null> => {
   const db = await getDb();
   const row = await db.get<NotificationJoinedRow>(
-      `SELECT n.id, n.type, n.created_at, n.is_read, n.actor_username, n.entity_type, n.entity_id,
+      `SELECT n.id, n.type, n.created_at, n.is_read, n.actor_username,
         u.display_name AS actor_display_name, u.avatar_url AS actor_avatar_url
      FROM notifications n
      LEFT JOIN users u ON u.username = n.actor_username
@@ -59,27 +55,57 @@ export const createNotification = async (input: {
   userId: string;
   type: string;
   actorUsername?: string | null;
-  entityType?: string | null;
-  entityId?: string | number | null;
 }): Promise<NotificationPayload | null> => {
   const db = await getDb();
   const result = await db.run(
-    'INSERT INTO notifications(username, type, actor_username, entity_type, entity_id) VALUES (?, ?, ?, ?, ?)',
+    'INSERT INTO notifications(username, type, actor_username) VALUES (?, ?, ?)',
     input.userId,
     input.type,
     input.actorUsername ?? null,
-    input.entityType ?? null,
-    input.entityId ?? null,
   );
 
   const id = result.lastID as number;
   return getNotificationById(id);
 };
 
+export const markNotificationsReadByActor = async (input: {
+  userId: string;
+  actorUsername: string;
+  types?: string[];
+}): Promise<void> => {
+  const db = await getDb();
+
+  if (input.types && input.types.length > 0) {
+    const placeholders = input.types.map(() => '?').join(', ');
+    await db.run(
+      `UPDATE notifications
+       SET is_read = 1
+       WHERE username = ?
+         AND is_read = 0
+         AND actor_username = ?
+         AND type IN (${placeholders})`,
+      input.userId,
+      input.actorUsername,
+      ...input.types,
+    );
+    return;
+  }
+
+  await db.run(
+    `UPDATE notifications
+     SET is_read = 1
+     WHERE username = ?
+       AND is_read = 0
+       AND actor_username = ?`,
+    input.userId,
+    input.actorUsername,
+  );
+};
+
 export const listNotifications = async (userId: string, limit: number, cursor: number | null): Promise<{ items: NotificationPayload[]; nextCursor: number | null }> => {
   const db = await getDb();
   const rows = await db.all<NotificationJoinedRow[]>(
-      `SELECT n.id, n.type, n.created_at, n.is_read, n.actor_username, n.entity_type, n.entity_id,
+      `SELECT n.id, n.type, n.created_at, n.is_read, n.actor_username,
         u.display_name AS actor_display_name, u.avatar_url AS actor_avatar_url
      FROM notifications n
     LEFT JOIN users u ON u.username = n.actor_username

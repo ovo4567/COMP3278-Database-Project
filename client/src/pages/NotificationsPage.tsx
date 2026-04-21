@@ -88,7 +88,6 @@ export function NotificationsPage(props: {
   };
 
   const userIdForFriendRequest = (n: NotificationItem): string | null => {
-    if (n.entity?.type === 'user' && typeof n.entity.id === 'string') return n.entity.id;
     if (n.actorUser && typeof n.actorUser.id === 'string') return n.actorUser.id;
     return null;
   };
@@ -118,9 +117,6 @@ export function NotificationsPage(props: {
   const renderLink = (n: NotificationItem) => {
     if ((n.type === 'friend_request_received' || n.type === 'friend_request_accepted') && n.actorUser?.username) {
       return `/u/${encodeURIComponent(n.actorUser.username)}`;
-    }
-    if (n.entity?.type === 'post') {
-      return `/p/${encodeURIComponent(String(n.entity.id))}`;
     }
     return null;
   };

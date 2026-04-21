@@ -30,7 +30,14 @@ export const runMigrations = async (): Promise<void> => {
 
   const commentColumns = await db.all<{ name: string }[]>('PRAGMA table_info(comments)');
   const hasLegacyCommentReplies = commentColumns.some((column) => column.name === 'parent_comment_id');
-  if (hasLegacyCommentReplies) {
+  const hasLegacyCommentLocationColumns = commentColumns.some(
+    (column) =>
+      column.name === 'author_ip' ||
+      column.name === 'author_country' ||
+      column.name === 'author_region' ||
+      column.name === 'author_city',
+  );
+  if (hasLegacyCommentReplies || hasLegacyCommentLocationColumns) {
     await db.exec('PRAGMA foreign_keys = OFF;');
     try {
       await db.exec(`
@@ -41,19 +48,15 @@ export const runMigrations = async (): Promise<void> => {
           username TEXT NOT NULL,
           text TEXT NOT NULL CHECK (length(trim(text)) > 0),
           created_at TEXT NOT NULL DEFAULT (datetime('now')),
-          author_ip TEXT,
-          author_country TEXT,
-          author_region TEXT,
-          author_city TEXT,
           FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
           FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
         );
 
         INSERT INTO comments_new (
-          id, post_id, username, text, created_at, author_ip, author_country, author_region, author_city
+          id, post_id, username, text, created_at
         )
         SELECT
-          id, post_id, username, text, created_at, author_ip, author_country, author_region, author_city
+          id, post_id, username, text, created_at
         FROM comments;
 
         DROP TABLE comments;
@@ -69,6 +72,8 @@ export const runMigrations = async (): Promise<void> => {
 
   const notificationTable = await db.get<{ sql: string | null }>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'notifications'");
   const notificationTableSql = notificationTable?.sql ?? '';
+  const notificationColumns = await db.all<{ name: string }[]>('PRAGMA table_info(notifications)');
+  const hasLegacyNotificationTargetColumns = notificationColumns.some((column) => column.name === 'entity_type' || column.name === 'entity_id');
   const hasExpectedNotificationTypes =
     notificationTableSql.includes("'friend_request_received'") &&
     notificationTableSql.includes("'friend_request_accepted'") &&
@@ -76,7 +81,7 @@ export const runMigrations = async (): Promise<void> => {
     notificationTableSql.includes("'post_commented'") &&
     notificationTableSql.includes("'comment_mention'");
   const hasLegacyCommentReplyNotifications = Boolean(notificationTableSql.includes("'comment_reply'"));
-  if (notificationTableSql && (!hasExpectedNotificationTypes || hasLegacyCommentReplyNotifications)) {
+  if (notificationTableSql && (!hasExpectedNotificationTypes || hasLegacyCommentReplyNotifications || hasLegacyNotificationTargetColumns)) {
     await db.exec('PRAGMA foreign_keys = OFF;');
     try {
       await db.exec(`
@@ -86,21 +91,15 @@ export const runMigrations = async (): Promise<void> => {
           username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
           type TEXT NOT NULL CHECK (type IN ('friend_request_received', 'friend_request_accepted', 'post_liked', 'post_commented', 'comment_mention')),
           actor_username TEXT REFERENCES users(username) ON DELETE SET NULL,
-          entity_type TEXT,
-          entity_id INTEGER,
           is_read INTEGER NOT NULL DEFAULT 0 CHECK (is_read IN (0, 1)),
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
-          CHECK (
-            (entity_type IS NULL AND entity_id IS NULL)
-            OR (entity_type IN ('user', 'post') AND entity_id IS NOT NULL AND entity_id > 0)
-          )
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
         INSERT INTO notifications_new (
-          id, username, type, actor_username, entity_type, entity_id, is_read, created_at
+          id, username, type, actor_username, is_read, created_at
         )
         SELECT
-          id, username, type, actor_username, entity_type, entity_id, is_read, created_at
+          id, username, type, actor_username, is_read, created_at
         FROM notifications
         WHERE type != 'comment_reply';
 
@@ -110,6 +109,9 @@ export const runMigrations = async (): Promise<void> => {
 
       await db.exec("DELETE FROM sqlite_sequence WHERE name = 'notifications';");
       await db.exec("INSERT INTO sqlite_sequence(name, seq) SELECT 'notifications', COALESCE(MAX(id), 0) FROM notifications;");
+      await db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(username, is_read);');
+      await db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_user_id_cursor ON notifications(username, id DESC);');
+      await db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_user_actor_read ON notifications(username, actor_username, is_read, type, id DESC);');
     } finally {
       await db.exec('PRAGMA foreign_keys = ON;');
     }
@@ -117,7 +119,14 @@ export const runMigrations = async (): Promise<void> => {
 
   const postColumns = await db.all<{ name: string }[]>('PRAGMA table_info(posts)');
   const hasLegacyPostCounters = postColumns.some((column) => column.name === 'like_count' || column.name === 'collect_count');
-  if (hasLegacyPostCounters) {
+  const hasLegacyPostLocationColumns = postColumns.some(
+    (column) =>
+      column.name === 'author_ip' ||
+      column.name === 'author_country' ||
+      column.name === 'author_region' ||
+      column.name === 'author_city',
+  );
+  if (hasLegacyPostCounters || hasLegacyPostLocationColumns) {
     await db.exec('PRAGMA foreign_keys = OFF;');
     try {
       await db.exec(`
@@ -135,10 +144,6 @@ export const runMigrations = async (): Promise<void> => {
           scheduled_publish_at TEXT,
           published_at TEXT,
           draft_saved_at TEXT,
-          author_ip TEXT,
-          author_country TEXT,
-          author_region TEXT,
-          author_city TEXT,
           CHECK (status <> 'draft' OR (scheduled_publish_at IS NULL AND published_at IS NULL)),
           CHECK (status <> 'scheduled' OR (scheduled_publish_at IS NOT NULL AND published_at IS NULL)),
           CHECK (status <> 'published' OR published_at IS NOT NULL),
@@ -151,11 +156,11 @@ export const runMigrations = async (): Promise<void> => {
 
         INSERT INTO posts_new (
           id, username, text, image_url, created_at, updated_at, visibility, category, status,
-          scheduled_publish_at, published_at, draft_saved_at, author_ip, author_country, author_region, author_city
+          scheduled_publish_at, published_at, draft_saved_at
         )
         SELECT
           id, username, text, image_url, created_at, updated_at, visibility, category, status,
-          scheduled_publish_at, published_at, draft_saved_at, author_ip, author_country, author_region, author_city
+          scheduled_publish_at, published_at, draft_saved_at
         FROM posts;
 
         DROP TABLE posts;

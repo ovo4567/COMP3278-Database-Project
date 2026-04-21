@@ -332,7 +332,7 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
               try {
                 await friendsApi.acceptRequest(profile.id);
                 try {
-                  await notificationsApi.markReadByEntity({ entityType: 'user', entityId: profile.id, types: ['friend_request_received'] });
+                  await notificationsApi.markReadByActor({ actorUsername: profile.id, types: ['friend_request_received'] });
                   requestUnreadRefresh();
                 } catch {
                   // Non-fatal
@@ -358,7 +358,7 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
               try {
                 await friendsApi.rejectRequest(profile.id);
                 try {
-                  await notificationsApi.markReadByEntity({ entityType: 'user', entityId: profile.id, types: ['friend_request_received'] });
+                  await notificationsApi.markReadByActor({ actorUsername: profile.id, types: ['friend_request_received'] });
                   requestUnreadRefresh();
                 } catch {
                   // Non-fatal
@@ -735,11 +735,7 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
                                 try {
                                   await friendsApi.acceptRequest(request.user.id);
                                   try {
-                                    await notificationsApi.markReadByEntity({
-                                      entityType: 'user',
-                                      entityId: request.user.id,
-                                      types: ['friend_request_received'],
-                                    });
+                                    await notificationsApi.markReadByActor({ actorUsername: request.user.id, types: ['friend_request_received'] });
                                     requestUnreadRefresh();
                                   } catch {
                                     // Non-fatal
@@ -764,11 +760,7 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
                                 try {
                                   await friendsApi.rejectRequest(request.user.id);
                                   try {
-                                    await notificationsApi.markReadByEntity({
-                                      entityType: 'user',
-                                      entityId: request.user.id,
-                                      types: ['friend_request_received'],
-                                    });
+                                    await notificationsApi.markReadByActor({ actorUsername: request.user.id, types: ['friend_request_received'] });
                                     requestUnreadRefresh();
                                   } catch {
                                     // Non-fatal

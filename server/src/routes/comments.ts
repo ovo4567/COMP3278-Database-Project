@@ -5,7 +5,6 @@ import { optionalAuth, requireAuth, type AuthedRequest, type MaybeAuthedRequest 
 import { emitEvent, emitToUserRoom } from '../realtime.js';
 import { canViewPost } from '../social/visibility.js';
 import { createNotification, type NotificationPayload } from '../services/notifications.js';
-import { lookupLocation, formatLocation } from '../services/location.js';
 import { publishDueScheduledPosts } from '../services/publish.js';
 
 export const commentsRouter = Router();
@@ -57,10 +56,6 @@ commentsRouter.get('/post/:postId', optionalAuth, async (req, res) => {
       id: number;
       text: string;
       created_at: string;
-      author_ip: string | null;
-      author_country: string | null;
-      author_region: string | null;
-      author_city: string | null;
       username: string;
       display_name: string | null;
       avatar_url: string | null;
@@ -68,7 +63,6 @@ commentsRouter.get('/post/:postId', optionalAuth, async (req, res) => {
   >(
     `SELECT
        c.id, c.text, c.created_at,
-       c.author_ip, c.author_country, c.author_region, c.author_city,
        u.username, u.display_name, u.avatar_url
      FROM comments c
      JOIN users u ON u.username = c.username
@@ -88,15 +82,6 @@ commentsRouter.get('/post/:postId', optionalAuth, async (req, res) => {
       id: row.id,
       text: row.text,
       createdAt: row.created_at,
-      authorMeta: {
-        ip: row.author_ip,
-        location: {
-          country: row.author_country,
-          region: row.author_region,
-          city: row.author_city,
-          label: formatLocation({ country: row.author_country, region: row.author_region, city: row.author_city }),
-        },
-      },
       user: { username: row.username, displayName: row.display_name, avatarUrl: row.avatar_url },
     })),
     nextCursor,
@@ -118,23 +103,17 @@ commentsRouter.post('/post/:postId', requireAuth, async (req, res) => {
   if (!(await canViewPost(postId, username))) return res.status(403).json({ error: 'Forbidden' });
   const db = await getDb();
 
-  const location = lookupLocation(req.ip);
   const notificationsToEmit: Array<{ userId: string; notification: NotificationPayload }> = [];
 
   await db.exec('BEGIN');
   try {
     const result = await db.run(
       `INSERT INTO comments(
-         post_id, username, text,
-         author_ip, author_country, author_region, author_city
-       ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+         post_id, username, text
+       ) VALUES (?, ?, ?)`,
       postId,
       username,
       parsed.data.text.trim(),
-      req.ip ?? null,
-      location.country,
-      location.region,
-      location.city,
     );
     const commentId = result.lastID as number;
 
@@ -143,8 +122,6 @@ commentsRouter.post('/post/:postId', requireAuth, async (req, res) => {
         userId: post.user_id,
         type: 'post_commented',
         actorUsername: username,
-        entityType: 'post',
-        entityId: postId,
       });
       if (notification) notificationsToEmit.push({ userId: post.user_id, notification });
     }
@@ -163,8 +140,6 @@ commentsRouter.post('/post/:postId', requireAuth, async (req, res) => {
           userId: mentioned.username,
           type: 'comment_mention',
           actorUsername: username,
-          entityType: 'post',
-          entityId: postId,
         });
         if (notification) notificationsToEmit.push({ userId: mentioned.username, notification });
       }

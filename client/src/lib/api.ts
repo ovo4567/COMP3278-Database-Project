@@ -288,7 +288,7 @@ export const notificationsApi = {
     return apiFetch('/api/notifications/read-all', { method: 'POST', auth: true });
   },
 
-  async markReadByEntity(input: { entityType: string; entityId: string | number; types?: string[] }): Promise<{ ok: true }> {
-    return apiFetch('/api/notifications/read-by-entity', { method: 'POST', body: input, auth: true });
+  async markReadByActor(input: { actorUsername: string; types?: string[] }): Promise<{ ok: true }> {
+    return apiFetch('/api/notifications/read-by-actor', { method: 'POST', body: input, auth: true });
   },
 };

@@ -447,17 +447,20 @@ adminRouter.post('/sql', async (req, res) => {
   const roDb = await getReadOnlyDb();
   const limited = enforceLimit(query, 200);
   const startedAt = performance.now();
+  try {
+    const rows = await roDb.all<Record<string, unknown>[]>(limited);
+    const executionMs = performance.now() - startedAt;
+    const columns = rows.length > 0 ? Object.keys(rows[0]!) : [];
+    const values = rows.map((r) => columns.map((c) => r[c]));
 
-  const rows = await roDb.all<Record<string, unknown>[]>(limited);
-  const executionMs = performance.now() - startedAt;
-  const columns = rows.length > 0 ? Object.keys(rows[0]!) : [];
-  const values = rows.map((r) => columns.map((c) => r[c]));
-
-  return res.json({
-    columns,
-    rows: values,
-    rowCount: rows.length,
-    limited: limited !== query.trim().replace(/;\s*$/, ''),
-    executionMs,
-  });
+    return res.json({
+      columns,
+      rows: values,
+      rowCount: rows.length,
+      limited: limited !== query.trim().replace(/;\s*$/, ''),
+      executionMs,
+    });
+  } catch (error) {
+    return res.status(400).json({ error: error instanceof Error ? error.message : 'Query failed' });
+  }
 });

@@ -12,18 +12,6 @@ export const POST_CATEGORY_LABELS: Record<PostCategory, string> = {
   others: 'Others',
 };
 
-export type LocationSummary = {
-  country: string | null;
-  region: string | null;
-  city: string | null;
-  label: string | null;
-};
-
-export type AuthorMeta = {
-  ip: string | null;
-  location: LocationSummary;
-};
-
 export type User = {
   id: string;
   username: string;
@@ -56,7 +44,6 @@ export type FeedPost = {
   collectedByMe?: boolean;
   createdAt: string;
   updatedAt: string | null;
-  authorMeta: AuthorMeta;
   user: {
     username: string;
     displayName: string | null;
@@ -152,7 +139,6 @@ export type NotificationItem = {
   createdAt: string;
   isRead: boolean;
   actorUser?: { id: string; username: string; displayName: string | null; avatarUrl: string | null } | null;
-  entity?: { type: string; id: string | number } | null;
 };
 
 export type NotifyEvent =
@@ -165,7 +151,6 @@ export type Comment = {
   id: number;
   text: string;
   createdAt: string;
-  authorMeta: AuthorMeta;
   user: {
     username: string;
     displayName: string | null;

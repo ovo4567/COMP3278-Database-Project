@@ -67,11 +67,11 @@ const QUICK_QUERY_GROUPS = [
       {
         label: '🏆 Most active users',
         query:
-          'SELECT username, COUNT(*) as post_count FROM users u JOIN posts p ON u.username = p.username GROUP BY u.username ORDER BY post_count DESC LIMIT 5',
+          'SELECT u.username, COUNT(*) AS post_count FROM users u JOIN posts p ON u.username = p.username GROUP BY u.username ORDER BY post_count DESC LIMIT 5',
       },
       {
         label: '❤️ Most liked posts',
-        query: 'SELECT id, text, like_count FROM posts ORDER BY like_count DESC LIMIT 5',
+        query: 'SELECT p.id, p.text, COALESCE(pe.like_count, 0) AS like_count FROM posts p LEFT JOIN post_engagement pe ON pe.post_id = p.id ORDER BY like_count DESC LIMIT 5',
       },
       {
         label: '💬 Most commented posts',

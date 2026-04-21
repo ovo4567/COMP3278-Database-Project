@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { getDb } from '../db/sqlite.js';
 import { optionalAuth, type MaybeAuthedRequest } from '../middleware/auth.js';
-import { formatLocation } from '../services/location.js';
 import { publishDueScheduledPosts } from '../services/publish.js';
 
 export const searchRouter = Router();
@@ -11,7 +10,6 @@ const postEngagementJoin = 'LEFT JOIN post_engagement pe ON pe.post_id = p.id';
 const postBaseColumns = `
            p.id, p.text, p.image_url, p.category, p.visibility, p.status, p.scheduled_publish_at, p.published_at,
            COALESCE(pe.like_count, 0) AS like_count, COALESCE(pe.collect_count, 0) AS collect_count, p.created_at, p.updated_at,
-           p.author_ip, p.author_country, p.author_region, p.author_city,
            u.username, u.display_name, u.avatar_url`;
 
 const querySchema = z.object({
@@ -64,10 +62,6 @@ searchRouter.get('/', optionalAuth, async (req, res) => {
       collect_count: number;
       created_at: string;
       updated_at: string | null;
-      author_ip: string | null;
-      author_country: string | null;
-      author_region: string | null;
-      author_city: string | null;
       username: string;
       display_name: string | null;
       avatar_url: string | null;
@@ -141,15 +135,6 @@ ${postBaseColumns},
       collectedByMe: Boolean(p.collected_by_me),
       createdAt: p.created_at,
       updatedAt: p.updated_at,
-      authorMeta: {
-        ip: p.author_ip,
-        location: {
-          country: p.author_country,
-          region: p.author_region,
-          city: p.author_city,
-          label: formatLocation({ country: p.author_country, region: p.author_region, city: p.author_city }),
-        },
-      },
       user: { username: p.username, displayName: p.display_name, avatarUrl: p.avatar_url },
     })),
   });

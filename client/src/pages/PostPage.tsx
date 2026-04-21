@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { PostDetail, User } from '../lib/types';
-import { notificationsApi, postsApi } from '../lib/api';
+import { postsApi } from '../lib/api';
 import { PostCard } from '../components/PostCard';
-import { requestUnreadRefresh } from '../lib/notificationsSync';
 
 export function PostPage(props: { currentUser: User | null }) {
   const { id } = useParams();
@@ -32,19 +31,6 @@ export function PostPage(props: { currentUser: User | null }) {
 
     void run();
   }, [postId]);
-
-  useEffect(() => {
-    if (!props.currentUser) return;
-    if (!Number.isFinite(postId)) return;
-    void (async () => {
-      try {
-        await notificationsApi.markReadByEntity({ entityType: 'post', entityId: postId });
-        requestUnreadRefresh();
-      } catch {
-        // Non-fatal
-      }
-    })();
-  }, [postId, props.currentUser?.id]);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">

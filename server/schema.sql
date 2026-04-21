@@ -40,10 +40,6 @@ CREATE TABLE IF NOT EXISTS posts (
   scheduled_publish_at TEXT,
   published_at TEXT,
   draft_saved_at TEXT,
-  author_ip TEXT,
-  author_country TEXT,
-  author_region TEXT,
-  author_city TEXT,
   CHECK (status <> 'draft' OR (scheduled_publish_at IS NULL AND published_at IS NULL)),
   CHECK (status <> 'scheduled' OR (scheduled_publish_at IS NOT NULL AND published_at IS NULL)),
   CHECK (status <> 'published' OR published_at IS NOT NULL),
@@ -60,10 +56,6 @@ CREATE TABLE IF NOT EXISTS comments (
   username TEXT NOT NULL,
   text TEXT NOT NULL CHECK (length(trim(text)) > 0),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  author_ip TEXT,
-  author_country TEXT,
-  author_region TEXT,
-  author_city TEXT,
   FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
   FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
 );
@@ -96,14 +88,8 @@ CREATE TABLE IF NOT EXISTS notifications (
   username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
   type TEXT NOT NULL CHECK (type IN ('friend_request_received', 'friend_request_accepted', 'post_liked', 'post_commented', 'comment_mention')),
   actor_username TEXT REFERENCES users(username) ON DELETE SET NULL,
-  entity_type TEXT,
-  entity_id INTEGER,
   is_read INTEGER NOT NULL DEFAULT 0 CHECK (is_read IN (0, 1)),
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  CHECK (
-    (entity_type IS NULL AND entity_id IS NULL)
-    OR (entity_type IN ('user', 'post') AND entity_id IS NOT NULL AND entity_id > 0)
-  )
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_is_banned ON users(is_banned);
@@ -128,4 +114,4 @@ CREATE INDEX IF NOT EXISTS idx_post_collections_post_created ON post_collections
 
 CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(username, is_read);
 CREATE INDEX IF NOT EXISTS idx_notifications_user_id_cursor ON notifications(username, id DESC);
-CREATE INDEX IF NOT EXISTS idx_notifications_user_entity_read ON notifications(username, entity_type, entity_id, is_read, id DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_actor_read ON notifications(username, actor_username, is_read, type, id DESC);

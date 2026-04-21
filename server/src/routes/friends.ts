@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { getDb } from '../db/sqlite.js';
 import { requireAuth, type AuthedRequest } from '../middleware/auth.js';
-import { createNotification, type NotificationPayload } from '../services/notifications.js';
+import { createNotification, markNotificationsReadByActor, type NotificationPayload } from '../services/notifications.js';
 import { emitToUserRoom } from '../realtime.js';
 
 export const friendsRouter = Router();
@@ -226,8 +226,6 @@ friendsRouter.post('/request/:userId', async (req, res) => {
       userId: targetUserId,
       type: 'friend_request_received',
       actorUsername: actorId,
-      entityType: 'user',
-      entityId: actorId,
     });
     if (n) emitNotification(targetUserId, n);
 
@@ -247,19 +245,12 @@ friendsRouter.post('/request/:userId', async (req, res) => {
       user2,
     );
 
-    await db.run(
-      "UPDATE notifications SET is_read = 1 WHERE username = ? AND type = 'friend_request_received' AND actor_username = ? AND entity_type = 'user' AND entity_id = ?",
-      actorId,
-      targetUserId,
-      targetUserId,
-    );
+    await markNotificationsReadByActor({ userId: actorId, actorUsername: targetUserId, types: ['friend_request_received'] });
 
     const n = await createNotification({
       userId: targetUserId,
       type: 'friend_request_accepted',
       actorUsername: actorId,
-      entityType: 'user',
-      entityId: actorId,
     });
     if (n) emitNotification(targetUserId, n);
 
@@ -277,8 +268,6 @@ friendsRouter.post('/request/:userId', async (req, res) => {
     userId: targetUserId,
     type: 'friend_request_received',
     actorUsername: actorId,
-    entityType: 'user',
-    entityId: actorId,
   });
   if (n) emitNotification(targetUserId, n);
 
@@ -309,19 +298,12 @@ friendsRouter.put('/request/:userId/accept', async (req, res) => {
     user2,
   );
 
-  await db.run(
-    "UPDATE notifications SET is_read = 1 WHERE username = ? AND type = 'friend_request_received' AND actor_username = ? AND entity_type = 'user' AND entity_id = ?",
-    actorId,
-    otherId,
-    otherId,
-  );
+  await markNotificationsReadByActor({ userId: actorId, actorUsername: otherId, types: ['friend_request_received'] });
 
   const n = await createNotification({
     userId: otherId,
     type: 'friend_request_accepted',
     actorUsername: actorId,
-    entityType: 'user',
-    entityId: actorId,
   });
   if (n) emitNotification(otherId, n);
 

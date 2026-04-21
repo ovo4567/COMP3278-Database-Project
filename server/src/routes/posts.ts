@@ -6,7 +6,6 @@ import { emitEvent, emitToUserRoom } from '../realtime.js';
 import { areFriends, canViewPostByOwner, type PostVisibility } from '../social/visibility.js';
 import { postCategories, type PostCategory } from '../social/categories.js';
 import { createNotification, type NotificationPayload } from '../services/notifications.js';
-import { lookupLocation, formatLocation } from '../services/location.js';
 import { publishDueScheduledPosts } from '../services/publish.js';
 import { buildImageInputSchema } from '../validation/image.js';
 
@@ -32,10 +31,6 @@ type PostRow = {
   collect_count: number;
   created_at: string;
   updated_at: string | null;
-  author_ip: string | null;
-  author_country: string | null;
-  author_region: string | null;
-  author_city: string | null;
   username: string;
   display_name: string | null;
   avatar_url: string | null;
@@ -76,7 +71,7 @@ const postBaseColumns = `
   p.username AS user_id,
        COALESCE(pe.like_count, 0) AS like_count,
        COALESCE(pe.collect_count, 0) AS collect_count,
-       p.created_at, p.updated_at, p.author_ip, p.author_country, p.author_region, p.author_city,
+  p.created_at, p.updated_at,
        u.username, u.display_name, u.avatar_url`;
 const popularLikeCountExpr = 'COALESCE(pe.like_count, 0)';
 
@@ -95,15 +90,6 @@ const formatPost = (row: PostRow) => ({
   collectedByMe: Boolean(row.collected_by_me),
   createdAt: row.created_at,
   updatedAt: row.updated_at,
-  authorMeta: {
-    ip: row.author_ip,
-    location: {
-      country: row.author_country,
-      region: row.author_region,
-      city: row.author_city,
-      label: formatLocation({ country: row.author_country, region: row.author_region, city: row.author_city }),
-    },
-  },
   user: {
     username: row.username,
     displayName: row.display_name,
@@ -409,14 +395,12 @@ postsRouter.post('/', requireAuth, async (req, res) => {
     return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid post state' });
   }
 
-  const location = lookupLocation(req.ip);
   const db = await getDb();
   const result = await db.run(
     `INSERT INTO posts(
        username, text, image_url, visibility, category, status,
-       scheduled_publish_at, published_at, draft_saved_at,
-       author_ip, author_country, author_region, author_city
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       scheduled_publish_at, published_at, draft_saved_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     username,
     text,
     imageUrl ? imageUrl : null,
@@ -426,10 +410,6 @@ postsRouter.post('/', requireAuth, async (req, res) => {
     lifecycle.scheduledPublishAt,
     lifecycle.publishedAt,
     lifecycle.draftSavedAt,
-    req.ip ?? null,
-    location.country,
-    location.region,
-    location.city,
   );
 
   const postId = result.lastID as number;
@@ -751,8 +731,6 @@ postsRouter.post('/:id/like', requireAuth, async (req, res) => {
         userId: postOwner.user_id,
         type: 'post_liked',
         actorUsername: username,
-        entityType: 'post',
-        entityId: postId,
       });
     }
     await db.exec('COMMIT');

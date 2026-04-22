@@ -150,22 +150,6 @@ const formatCellForDisplay = (value: unknown): string => {
   return toCellText(value);
 };
 
-const toCsvCell = (value: string): string => {
-  if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
-  return value;
-};
-
-const buildCsvFromResult = (result: AdminSqlResult): string => {
-  if (result.columns.length === 0) return '';
-
-  const lines = [
-    result.columns.map((column) => toCsvCell(column)).join(','),
-    ...result.rows.map((row) => row.map((cell) => toCsvCell(toCellText(cell))).join(',')),
-  ];
-
-  return lines.join('\n');
-};
-
 function DashboardStat(props: {
   label: string;
   value: ReactNode;
@@ -392,8 +376,6 @@ function SqlPanel(props: {
   onPickHistory: (query: string) => void;
   onClearHistory: () => void;
   executionMs: number | null;
-  onCopyCsv: () => void;
-  copyState: 'idle' | 'copied' | 'failed';
 }) {
   const [selectedSuggestion, setSelectedSuggestion] = useState('');
 
@@ -504,20 +486,7 @@ function SqlPanel(props: {
                     <span>Columns: <span className="ui-system">{props.result.columns.length}</span></span>
                     {props.result.limited ? <span className="ui-badge ui-system">Limited</span> : null}
                   </div>
-                  <button
-                    type="button"
-                    onClick={props.onCopyCsv}
-                    disabled={props.result.columns.length === 0}
-                    className="rounded-lg border border-gray-200 bg-gray-100 px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
-                  >
-                    Copy results as CSV
-                  </button>
                 </div>
-                {props.copyState !== 'idle' ? (
-                  <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                    {props.copyState === 'copied' ? 'Results copied to clipboard.' : 'Failed to copy results.'}
-                  </div>
-                ) : null}
 
                 <div className="mt-4 max-h-80 overflow-x-auto overflow-y-auto rounded-[18px] border border-white/20 bg-black/[0.04] dark:border-gray-700 dark:bg-white/[0.03]">
                   {props.result.columns.length > 0 ? (
@@ -616,7 +585,6 @@ export function AdminPage({ currentUser }: Props) {
   const [sqlResult, setSqlResult] = useState<AdminSqlResult | null>(null);
   const [sqlExecutionMs, setSqlExecutionMs] = useState<number | null>(null);
   const [sqlHistory, setSqlHistory] = useState<string[]>([]);
-  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
 
   const isAdmin = Boolean(currentUser && (currentUser.role as Role) === 'admin');
 
@@ -652,12 +620,6 @@ export function AdminPage({ currentUser }: Props) {
       // Ignore malformed localStorage payloads.
     }
   }, [isAdmin]);
-
-  useEffect(() => {
-    if (copyState === 'idle') return;
-    const timer = window.setTimeout(() => setCopyState('idle'), 2200);
-    return () => window.clearTimeout(timer);
-  }, [copyState]);
 
   const seriesNewUsers = useMemo(() => (data ? data.users.series.map((point) => ({ day: point.day, value: point.newUsers })) : []), [data]);
   const seriesActiveUsers = useMemo(() => (data ? data.users.series.map((point) => ({ day: point.day, value: point.activeUsers })) : []), [data]);
@@ -698,16 +660,6 @@ export function AdminPage({ currentUser }: Props) {
     }
   };
 
-  const copySqlResultAsCsv = async () => {
-    if (!sqlResult || sqlResult.columns.length === 0) return;
-    try {
-      await navigator.clipboard.writeText(buildCsvFromResult(sqlResult));
-      setCopyState('copied');
-    } catch {
-      setCopyState('failed');
-    }
-  };
-
   const runSql = async () => {
     const query = sql.trim();
     if (!query) {
@@ -720,7 +672,6 @@ export function AdminPage({ currentUser }: Props) {
     const startedAt = performance.now();
     setSqlLoading(true);
     setSqlError(null);
-    setCopyState('idle');
     setSqlExecutionMs(null);
     try {
       const result = await adminApi.runSql({ query });
@@ -965,8 +916,6 @@ export function AdminPage({ currentUser }: Props) {
               onPickHistory={setSql}
               onClearHistory={clearSqlHistory}
               executionMs={sqlExecutionMs}
-              onCopyCsv={() => void copySqlResultAsCsv()}
-              copyState={copyState}
             />
           </section>
         </>

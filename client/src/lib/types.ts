@@ -26,7 +26,7 @@ export type UserProfile = User & {
   createdAt: string;
   stats?: { postCount: number; likesReceived: number };
   friendCount?: number;
-  friendship?: { status: 'pending' | 'accepted' | 'rejected'; actionUserId: string | null } | null;
+  friendship?: { status: 'pending' | 'accepted' | 'rejected'; senderUsername: string | null } | null;
 };
 
 export type FeedPost = {

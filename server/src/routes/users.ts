@@ -34,16 +34,20 @@ usersRouter.get('/:username', optionalAuth, async (req, res) => {
   const viewerIsOwner = viewerUsername === user.username;
   const viewerCanSeeFriendsPosts = viewerIsOwner || (viewerUsername ? await areFriends(viewerUsername, user.username) : false);
 
-  let friendship: { status: 'pending' | 'accepted' | 'rejected'; actionUserId: string | null } | null = null;
+  let friendship: { status: 'pending' | 'accepted' | 'rejected'; senderUsername: string | null } | null = null;
   if (viewerUsername && !viewerIsOwner) {
-    const low = viewerUsername < user.username ? viewerUsername : user.username;
-    const high = viewerUsername < user.username ? user.username : viewerUsername;
-    const row = await db.get<{ status: 'pending' | 'accepted' | 'rejected'; action_user_id: string | null }>(
-      'SELECT status, action_user_id FROM friendships WHERE username1 = ? AND username2 = ?',
-      low,
-      high,
+    const row = await db.get<{ username1: string; username2: string; status: 'pending' | 'accepted' | 'rejected' }>(
+      `SELECT username1, username2, status
+       FROM friendships
+       WHERE (username1 = ? AND username2 = ?)
+          OR (username1 = ? AND username2 = ?)
+       LIMIT 1`,
+      viewerUsername,
+      user.username,
+      user.username,
+      viewerUsername,
     );
-    if (row) friendship = { status: row.status, actionUserId: row.action_user_id };
+    if (row) friendship = { status: row.status, senderUsername: row.username1 };
   }
 
   const visiblePostsWhere = viewerIsOwner

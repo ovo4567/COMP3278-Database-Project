@@ -19,12 +19,10 @@ CREATE TABLE IF NOT EXISTS friendships (
   username1 TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
   username2 TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'rejected')),
-  action_user_id TEXT REFERENCES users(username) ON DELETE SET NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT,
   PRIMARY KEY (username1, username2),
-  CHECK (username1 < username2),
-  CHECK (action_user_id IS NULL OR action_user_id IN (username1, username2))
+  CHECK (username1 <> username2)
 );
 
 CREATE TABLE IF NOT EXISTS posts (
@@ -96,6 +94,10 @@ CREATE INDEX IF NOT EXISTS idx_users_is_banned ON users(is_banned);
 
 CREATE INDEX IF NOT EXISTS idx_friendships_user1_status ON friendships(username1, status);
 CREATE INDEX IF NOT EXISTS idx_friendships_user2_status ON friendships(username2, status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_friendships_pair ON friendships(
+  CASE WHEN username1 < username2 THEN username1 ELSE username2 END,
+  CASE WHEN username1 < username2 THEN username2 ELSE username1 END
+);
 
 CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_user_status_created ON posts(username, status, created_at DESC);

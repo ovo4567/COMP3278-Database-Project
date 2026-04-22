@@ -354,8 +354,6 @@ const buildPostText = (category: PostCategory, userIndex: number, sequence: numb
   return `${subject}: ${action} ${detail} ${closer}`;
 };
 
-const normalizePair = (a: string, b: string) => (a < b ? { user1: a, user2: b } : { user1: b, user2: a });
-
 const resetDatabaseInPlace = async (force: boolean) => {
   if (!force) return;
 
@@ -780,26 +778,24 @@ const seedFriendships = async (users: SeededUser[]) => {
 
     acceptedPairs.push({ a, b });
 
-    const { user1, user2 } = normalizePair(a.id, b.id);
-    const actionUserId = pairIndex % 2 === 0 ? a.id : b.id;
+    const senderId = pairIndex % 2 === 0 ? a.id : b.id;
+    const receiverId = senderId === a.id ? b.id : a.id;
     const createdAt = toSqliteDateTime(daysAgo(45 - pairIndex * 4, pairIndex + 1));
 
     await db.run(
-      "INSERT OR IGNORE INTO friendships(username1, username2, status, action_user_id, created_at, updated_at) VALUES (?, ?, 'accepted', ?, ?, ?)",
-      user1,
-      user2,
-      actionUserId,
+      "INSERT OR IGNORE INTO friendships(username1, username2, status, created_at, updated_at) VALUES (?, ?, 'accepted', ?, ?)",
+      senderId,
+      receiverId,
       createdAt,
       createdAt,
     );
 
-    const receiverId = actionUserId === a.id ? b.id : a.id;
     await createNotification({
       userId: receiverId,
       type: 'friend_request_accepted',
-      actorUsername: actionUserId,
+      actorUsername: senderId,
       entityType: 'user',
-      entityId: actionUserId,
+      entityId: senderId,
     });
   }
 
@@ -818,14 +814,12 @@ const seedFriendships = async (users: SeededUser[]) => {
     const receiver = users[receiverIndex];
     if (!sender || !receiver) continue;
 
-    const { user1, user2 } = normalizePair(sender.id, receiver.id);
     const createdAt = toSqliteDateTime(daysAgo(12 - pairIndex, pairIndex));
 
     const result = await db.run(
-      "INSERT OR IGNORE INTO friendships(username1, username2, status, action_user_id, created_at, updated_at) VALUES (?, ?, 'pending', ?, ?, NULL)",
-      user1,
-      user2,
+      "INSERT OR IGNORE INTO friendships(username1, username2, status, created_at, updated_at) VALUES (?, ?, 'pending', ?, NULL)",
       sender.id,
+      receiver.id,
       createdAt,
     );
 

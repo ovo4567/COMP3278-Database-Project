@@ -6,10 +6,18 @@ type PostRow = { user_id: string; visibility: PostVisibility; status: 'draft' | 
 
 export const areFriends = async (viewerUsername: string, otherUsername: string): Promise<boolean> => {
   if (viewerUsername === otherUsername) return true;
-  const low = viewerUsername < otherUsername ? viewerUsername : otherUsername;
-  const high = viewerUsername < otherUsername ? otherUsername : viewerUsername;
   const db = await getDb();
-  const row = await db.get('SELECT 1 FROM friendships WHERE username1 = ? AND username2 = ? AND status = \'accepted\'', low, high);
+  const row = await db.get(
+    `SELECT 1
+     FROM friendships
+     WHERE status = 'accepted'
+       AND ((username1 = ? AND username2 = ?) OR (username1 = ? AND username2 = ?))
+     LIMIT 1`,
+    viewerUsername,
+    otherUsername,
+    otherUsername,
+    viewerUsername,
+  );
   return Boolean(row);
 };
 

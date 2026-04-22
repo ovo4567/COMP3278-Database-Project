@@ -88,8 +88,10 @@ ${postBaseColumns},
                AND EXISTS (
                  SELECT 1 FROM friendships f
                  WHERE f.status = 'accepted'
-                     AND f.username1 = CASE WHEN p.username < ? THEN p.username ELSE ? END
-                     AND f.username2 = CASE WHEN p.username < ? THEN ? ELSE p.username END
+                     AND (
+                       (f.username1 = ? AND f.username2 = ?)
+                       OR (f.username1 = ? AND f.username2 = ?)
+                     )
                )
              )
            )

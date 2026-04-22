@@ -117,6 +117,49 @@ export const runMigrations = async (): Promise<void> => {
     }
   }
 
+  const friendshipTable = await db.get<{ sql: string | null }>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'friendships'");
+  const friendshipTableSql = friendshipTable?.sql ?? '';
+  const friendshipColumns = await db.all<{ name: string }[]>('PRAGMA table_info(friendships)');
+  const hasLegacyFriendshipActionUser = friendshipColumns.some((column) => column.name === 'action_user_id');
+  const hasLegacyFriendshipOrdering = friendshipTableSql.includes('username1 < username2');
+  if (friendshipTableSql && (hasLegacyFriendshipActionUser || hasLegacyFriendshipOrdering)) {
+    await db.exec('PRAGMA foreign_keys = OFF;');
+    try {
+      await db.exec(`
+        DROP TABLE IF EXISTS friendships_new;
+        CREATE TABLE friendships_new (
+          username1 TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+          username2 TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'rejected')),
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT,
+          PRIMARY KEY (username1, username2),
+          CHECK (username1 <> username2)
+        );
+
+        INSERT INTO friendships_new (
+          username1, username2, status, created_at, updated_at
+        )
+        SELECT
+          COALESCE(action_user_id, username1) AS username1,
+          CASE
+            WHEN action_user_id IS NOT NULL AND action_user_id = username1 THEN username2
+            WHEN action_user_id IS NOT NULL AND action_user_id = username2 THEN username1
+            ELSE username2
+          END AS username2,
+          status,
+          created_at,
+          updated_at
+        FROM friendships;
+
+        DROP TABLE friendships;
+        ALTER TABLE friendships_new RENAME TO friendships;
+      `);
+    } finally {
+      await db.exec('PRAGMA foreign_keys = ON;');
+    }
+  }
+
   const postColumns = await db.all<{ name: string }[]>('PRAGMA table_info(posts)');
   const hasLegacyPostCounters = postColumns.some((column) => column.name === 'like_count' || column.name === 'collect_count');
   const hasLegacyPostLocationColumns = postColumns.some(

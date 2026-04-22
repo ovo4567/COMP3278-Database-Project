@@ -280,7 +280,7 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
             setFriendBusy(true);
             try {
               const res = await friendsApi.sendRequest(profile.id);
-              setFriendshipLocal({ status: res.status, actionUserId: currentUser.id });
+              setFriendshipLocal({ status: res.status, senderUsername: currentUser.id });
               await refreshProfile();
             } catch (err) {
               setProfileError(err instanceof Error ? err.message : 'Failed to send friend request');
@@ -296,7 +296,7 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
       );
     }
 
-    if (profile.friendship.status === 'pending' && profile.friendship.actionUserId === currentUser.id) {
+    if (profile.friendship.status === 'pending' && profile.friendship.senderUsername === currentUser.id) {
       return (
         <button
           disabled={friendBusy}
@@ -321,7 +321,7 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
       );
     }
 
-    if (profile.friendship.status === 'pending' && profile.friendship.actionUserId !== currentUser.id) {
+    if (profile.friendship.status === 'pending' && profile.friendship.senderUsername !== currentUser.id) {
       return (
         <>
           <button
@@ -337,7 +337,7 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
                 } catch {
                   // Non-fatal
                 }
-                setFriendshipLocal({ status: 'accepted', actionUserId: null });
+                setFriendshipLocal({ status: 'accepted', senderUsername: profile.friendship?.senderUsername ?? null });
                 await refreshProfile();
               } catch (err) {
                 setProfileError(err instanceof Error ? err.message : 'Failed to accept request');
@@ -363,7 +363,7 @@ export function ProfilePage({ currentUser, onUserUpdated }: Props) {
                 } catch {
                   // Non-fatal
                 }
-                setFriendshipLocal({ status: 'rejected', actionUserId: null });
+                setFriendshipLocal({ status: 'rejected', senderUsername: profile.friendship?.senderUsername ?? null });
                 await refreshProfile();
               } catch (err) {
                 setProfileError(err instanceof Error ? err.message : 'Failed to reject request');
